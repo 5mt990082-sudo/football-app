@@ -124,6 +124,8 @@ select:focus,input:focus{border-color:var(--accent)}
 .score-track{background:var(--surface2);border-radius:100px;height:9px;overflow:hidden}
 .score-fill{height:100%;border-radius:100px;background:linear-gradient(90deg,var(--accent),var(--accent2))}
 .score-pct{font-size:12px;font-weight:600;text-align:right;color:var(--text2)}
+.intel-box{background:rgba(245,166,35,.08);border:1px solid rgba(245,166,35,.25);border-radius:var(--radius-sm);padding:10px 12px;margin-top:12px;font-size:12px;color:var(--text2);line-height:1.6}
+.intel-label{display:block;font-size:11px;font-weight:700;color:var(--yellow);margin-bottom:4px;letter-spacing:.05em}
 @media(max-width:768px){.main{grid-template-columns:1fr;padding:16px}.matches-list{max-height:340px}.player-cols{grid-template-columns:1fr}}
 </style>
 </head>
@@ -396,14 +398,15 @@ async function analyzeSelected(){
 
     // 先畫「模型預測 + 真實數據」，AI 觀點顯示載入中（即使 AI 掛掉，預測也已完成）
     rc.innerHTML=predBlock
-      +'<div class="data-section"><div class="data-section-title">🤖 AI 觀點</div><div class="loading-state" style="padding:20px"><div class="spinner"></div><div>Claude 解讀中...</div></div></div>'
+      +'<div class="data-section"><div class="data-section-title">🤖 AI 觀點</div><div class="loading-state" style="padding:20px"><div class="spinner"></div><div>Claude 上網查賽前情報並解讀中...</div><div style="font-size:11px;color:var(--text3);margin-top:6px">(含網路搜尋，約需 10～30 秒)</div></div></div>'
       +dataHTML;
 
     // 組裝 prompt：把模型結果與真實數字交給 AI 解讀（機率已由模型算出）
     const modelHint={balanced:'均衡看待攻守與近況',attack:'特別側重進攻火力',defense:'特別側重防守穩定',form:'特別側重近5場狀態',historical:'特別側重歷史交手'}[model];
     const fmtP=arr=>arr.map(p=>`${p.name}(${p.apps}場/勝率${Math.round(p.winRate*100)}%/場均進${p.avgGf.toFixed(1)}失${p.avgGa.toFixed(1)})`).join('、')||'資料不足';
     const h2hTxt=h2hFin.map(f=>`${f.teams.home.name} ${f.goals.home}-${f.goals.away} ${f.teams.away.name}`).join('；')||'無歷史交手紀錄';
-    const prompt=`你是專業足球數據分析師。以下為真實統計與 Poisson 模型結果，請「解讀」（機率已由模型算出，不需重算）。
+    const prompt=`你是專業足球數據分析師。以下為真實統計與 Poisson 模型結果，機率已由模型算出，不需重算。
+請先使用 web_search 搜尋這場比賽的最新賽前資訊（傷停名單、停賽球員、預期先發、近期狀態、教練賽前談話、媒體預測），**只採用可信來源**（球隊/協會官網、FIFA、主流體育媒體如 BBC Sport、ESPN、Reuters、The Athletic、Sky Sports 等），避免論壇、內容農場、未具名爆料。搜尋後再結合下方數據做綜合解讀。
 賽事：${m.league}，${m.home}(主) vs ${m.away}(客)，場地 ${m.venue||'未知'}。${(m.homeGoals!=null&&m.awayGoals!=null)?`目前比分 ${m.homeGoals}-${m.awayGoals}。`:''}
 【模型結果】預期進球 ${m.home} ${pm.hL.toFixed(2)} / ${m.away} ${pm.aL.toFixed(2)}；勝率 主${pctI(pm.homeWin)}% 平${pctI(pm.draw)}% 客${pctI(pm.awayWin)}%；最可能比分 ${pm.mode.h}-${pm.mode.a}；兩隊都進球 ${pctI(pm.btts)}%；大於2.5球 ${pctI(pm.over25)}%
 【${m.home}近${hs.n}場】${hs.w}勝${hs.d}平${hs.l}敗，場均進${hs.avgGf.toFixed(2)}失${hs.avgGa.toFixed(2)}，零失球率${Math.round(hs.csRate*100)}%，近況${hs.form.join('')}
@@ -411,20 +414,31 @@ async function analyzeSelected(){
 【歷史交手】${h2hTxt}
 【${m.home}關鍵先發】${fmtP(hp.players)}
 【${m.away}關鍵先發】${fmtP(ap.players)}
-分析取向：${modelHint}。請給：1.根據數據的3-5個關鍵因素標籤 2.80字內總結(引用具體數字、呼應模型結果)。只回傳純JSON：{"factors":[{"label":"標籤","type":"positive|negative|neutral"}],"summary":"總結"}`;
+分析取向：${modelHint}。請給：1.根據數據與情報的3-5個關鍵因素標籤 2.intel：80字內條列查到的賽前情報重點(傷停/狀態/變數)，若搜尋無可信結果就寫「無重大賽前情報」 3.summary：90字內總結(結合模型結果與情報，指出模型沒涵蓋的變數)。最後只回傳純JSON（不要其他文字）：{"factors":[{"label":"標籤","type":"positive|negative|neutral"}],"intel":"情報重點","summary":"總結"}`;
 
-    // ── Claude 呼叫：獨立 try/catch，失敗也保留模型預測與真實數據 ──
+    // ── Claude 呼叫（含 web_search，限 4 次搜尋控制成本）：失敗也保留模型預測與真實數據 ──
     try{
-      const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
+      const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        model:'claude-sonnet-4-6',
+        max_tokens:1600,
+        tools:[{type:'web_search_20250305',name:'web_search',max_uses:4}],
+        messages:[{role:'user',content:prompt}]
+      })});
       const data=await res.json();
       if(!data.content||!Array.isArray(data.content)){
         const msg=(data.error&&(data.error.message||data.error))||data.message||JSON.stringify(data).slice(0,300);
         throw new Error(typeof msg==='string'?msg:JSON.stringify(msg));
       }
-      const text=data.content.map(b=>b.text||'').join('');
-      const r=JSON.parse(text.replace(/```json|```/g,'').trim());
-      const aiHTML='<div class="data-section"><div class="data-section-title">🤖 AI 觀點</div>'
+      // 取出所有文字區塊（web_search 會夾帶工具區塊，只留 text）
+      const text=data.content.filter(b=>b.type==='text').map(b=>b.text||'').join('');
+      // 穩健擷取 JSON：抓第一個 { 到最後一個 }
+      const s=text.indexOf('{'), e=text.lastIndexOf('}');
+      if(s<0||e<0)throw new Error('AI 未回傳可解析結果');
+      const r=JSON.parse(text.slice(s,e+1));
+      const intelHTML=r.intel?`<div class="intel-box"><span class="intel-label">🔎 賽前情報</span>${r.intel}</div>`:'';
+      const aiHTML='<div class="data-section"><div class="data-section-title">🤖 AI 觀點（含網路情報）</div>'
         +`<div class="factor-tags">${(r.factors||[]).map(f=>`<span class="factor-tag ${f.type}">${f.label}</span>`).join('')}</div>`
+        +intelHTML
         +`<div class="ai-summary" style="border-top:none;padding-top:12px">${r.summary||''}</div></div>`;
       rc.innerHTML=predBlock+aiHTML+dataHTML;
     }catch(aiErr){
