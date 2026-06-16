@@ -83,7 +83,36 @@ select:focus,input:focus{border-color:var(--accent)}
 .factor-tag.neutral{background:rgba(79,142,247,.1);border:1px solid rgba(79,142,247,.25);color:#7aabf7}
 .ai-summary{font-size:13px;color:var(--text2);line-height:1.7;padding-top:16px;border-top:1px solid var(--border);margin-top:16px}
 .info-box{background:rgba(79,142,247,.06);border:1px solid rgba(79,142,247,.15);border-radius:var(--radius);padding:14px 16px;font-size:12px;color:var(--text2);line-height:1.7}
-@media(max-width:768px){.main{grid-template-columns:1fr;padding:16px}.matches-list{max-height:340px}}
+.data-section{margin-top:20px;padding-top:18px;border-top:1px solid var(--border)}
+.data-section-title{font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:14px;display:flex;align-items:center;gap:6px}
+.stat-compare{display:flex;flex-direction:column;gap:12px}
+.stat-row{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px}
+.stat-bar-wrap{display:flex;align-items:center;gap:8px}
+.stat-bar-wrap.left{flex-direction:row-reverse}
+.stat-bar{height:7px;border-radius:100px;background:var(--surface2);flex:1;overflow:hidden;position:relative}
+.stat-bar-fill{height:100%;border-radius:100px}
+.stat-bar-fill.home{background:linear-gradient(90deg,var(--accent2),var(--accent))}
+.stat-bar-fill.away{background:linear-gradient(90deg,var(--red),#f07070)}
+.stat-val{font-size:14px;font-weight:700;min-width:34px;text-align:center}
+.stat-val.left{text-align:right}.stat-val.right{text-align:left}
+.stat-name{font-size:11px;color:var(--text3);text-align:center;min-width:78px;font-weight:600}
+.form-pills{display:flex;gap:3px}
+.form-pill{width:18px;height:18px;border-radius:4px;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;color:#fff}
+.form-pill.W{background:var(--green)}.form-pill.D{background:var(--text3)}.form-pill.L{background:var(--red)}
+.h2h-list{display:flex;flex-direction:column;gap:6px}
+.h2h-item{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px}
+.h2h-team{color:var(--text2)}.h2h-team.r{text-align:right}
+.h2h-score{font-size:14px;font-weight:700;min-width:54px;text-align:center;letter-spacing:.5px}
+.h2h-date{font-size:10px;color:var(--text3);text-align:center;margin-top:2px}
+.player-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.player-col-title{font-size:12px;font-weight:600;color:var(--text);margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.player-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)}
+.player-row:last-child{border-bottom:none}
+.player-name{font-size:12px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.player-stat{font-size:11px;color:var(--text3);white-space:nowrap;display:flex;gap:8px;flex-shrink:0}
+.player-wr{font-weight:700}.player-wr.hi{color:var(--green)}.player-wr.mid{color:var(--yellow)}.player-wr.lo{color:var(--red)}
+.data-note{font-size:11px;color:var(--text3);font-style:italic;margin-top:8px}
+@media(max-width:768px){.main{grid-template-columns:1fr;padding:16px}.matches-list{max-height:340px}.player-cols{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -100,7 +129,8 @@ select:focus,input:focus{border-color:var(--accent)}
       <label>聯賽</label>
       <select id="league-select">
         <optgroup label="🏆 國際賽事">
-          <option value="1|2022">世界盃 2022（免費方案）</option>
+          <option value="1|2026">世界盃 2026（進行中）</option>
+          <option value="1|2022">世界盃 2022</option>
           <option value="4|2024">歐洲盃 2024</option>
           <option value="2|2024">歐冠 2024/25</option>
         </optgroup>
@@ -148,8 +178,9 @@ select:focus,input:focus{border-color:var(--accent)}
       2. 填入 API-Football Key<br>
       3. 選聯賽 → 載入賽事<br>
       4. 點場次 → AI 分析<br><br>
-      <strong style="color:var(--yellow)">⚠️ 免費方案限制</strong><br>
-      免費 API Key 僅支援 2022–2024 賽季。世界盃請選「2022」,五大聯賽請選「2024/25」或「2023/24」。
+      <strong style="color:var(--accent)">📊 分析內容</strong><br>
+      每場會抓兩隊近 15 場真實紀錄,計算進攻/防守強弱、零失球率、近況、歷史交手比分,以及「關鍵球員先發時的戰績關聯」,再交給 AI 綜合預測。<br>
+      <span style="color:var(--text3)">※ 每次分析約 5 次 API 呼叫;大賽初期部分出場名單資料可能尚未齊全。</span>
     </div>
   </aside>
   <div class="content">
@@ -199,10 +230,10 @@ async function fetchMatches(){
   const to=new Date(today);to.setDate(to.getDate()+future);
   const fmt=d=>d.toISOString().split('T')[0];
   try{
-    const res=await fetch(`/api/football?league=${leagueId}&season=${season}&from=${fmt(from)}&to=${fmt(to)}`,{headers:{'x-apisports-key':apiKey}});
+    const res=await fetch(`/api/football/fixtures?league=${leagueId}&season=${season}&from=${fmt(from)}&to=${fmt(to)}`,{headers:{'x-apisports-key':apiKey}});
     const data=await res.json();
     if(data.errors&&Object.keys(data.errors).length>0)throw new Error(Object.values(data.errors).join(', '));
-    allMatches=(data.response||[]).map(f=>({id:f.fixture.id,status:STATUS_MAP[f.fixture.status.short]||'finished',statusShort:f.fixture.status.short,elapsed:f.fixture.status.elapsed,date:f.fixture.date,league:leagueName,home:f.teams.home.name,homeLogo:f.teams.home.logo,away:f.teams.away.name,awayLogo:f.teams.away.logo,homeGoals:f.goals.home,awayGoals:f.goals.away,venue:f.fixture.venue?.name||''}));
+    allMatches=(data.response||[]).map(f=>({id:f.fixture.id,status:STATUS_MAP[f.fixture.status.short]||'finished',statusShort:f.fixture.status.short,elapsed:f.fixture.status.elapsed,date:f.fixture.date,league:leagueName,leagueId,season,home:f.teams.home.name,homeId:f.teams.home.id,homeLogo:f.teams.home.logo,away:f.teams.away.name,awayId:f.teams.away.id,awayLogo:f.teams.away.logo,homeGoals:f.goals.home,awayGoals:f.goals.away,venue:f.fixture.venue?.name||''}));
     showStatus('ok',`✓ 取得 ${allMatches.length} 場 ${leagueName} 真實賽事`);
     renderMatches();
   }catch(e){showStatus('warn','API 錯誤：'+e.message)}
@@ -227,6 +258,60 @@ function renderMatches(){
 
 function selectMatch(i){selectedIdx=i;document.querySelectorAll('.match-card').forEach((c,j)=>c.classList.toggle('selected',j===i));document.getElementById('analyze-btn').disabled=false;document.getElementById('result-card').classList.add('hidden')}
 
+// ── API helper（透過後端代理，可帶快取）──
+const apiCache={};
+async function apiGet(path){
+  if(apiCache[path])return apiCache[path];
+  const res=await fetch('/api/football'+path,{headers:{'x-apisports-key':document.getElementById('api-key').value.trim()}});
+  const data=await res.json();
+  if(data.errors&&Object.keys(data.errors).length>0)throw new Error(Object.values(data.errors).join(', '));
+  const out=data.response||[];
+  apiCache[path]=out;
+  return out;
+}
+
+const FINISHED=['FT','AET','PEN'];
+
+// ── 從近期比賽算進攻/防守數據 ──
+function computeTeamStats(fixtures,teamId){
+  let n=0,gf=0,ga=0,w=0,d=0,l=0,cs=0;const form=[];
+  for(const f of fixtures){
+    if(!FINISHED.includes(f.fixture.status.short))continue;
+    const home=f.teams.home.id===teamId;
+    const my=home?f.goals.home:f.goals.away, op=home?f.goals.away:f.goals.home;
+    if(my==null||op==null)continue;
+    n++;gf+=my;ga+=op;
+    if(op===0)cs++;
+    const r=my>op?'W':my===op?'D':'L';if(r==='W')w++;else if(r==='D')d++;else l++;
+    form.push(r);
+  }
+  return{n,w,d,l,cs,avgGf:n?gf/n:0,avgGa:n?ga/n:0,csRate:n?cs/n:0,form:form.slice(0,5)};
+}
+
+// ── 隊員出場 × 勝負關聯（從含 lineup 的詳細比賽算）──
+function computePlayerPatterns(fixtures,teamId){
+  const map={};let withLineup=0;
+  for(const f of fixtures){
+    if(!FINISHED.includes(f.fixture.status.short))continue;
+    const lu=(f.lineups||[]).find(x=>x.team&&x.team.id===teamId);
+    if(!lu||!lu.startXI||!lu.startXI.length)continue;
+    withLineup++;
+    const home=f.teams.home.id===teamId;
+    const my=home?f.goals.home:f.goals.away, op=home?f.goals.away:f.goals.home;
+    if(my==null||op==null)continue;
+    const res=my>op?'w':my===op?'d':'l';
+    for(const it of lu.startXI){
+      const p=it.player;if(!p)continue;const k=p.id;
+      if(!map[k])map[k]={name:p.name,apps:0,w:0,d:0,l:0,gf:0,ga:0};
+      const e=map[k];e.apps++;e[res]++;e.gf+=my;e.ga+=op;
+    }
+  }
+  const players=Object.values(map).filter(p=>p.apps>=2)
+    .map(p=>({...p,winRate:p.w/p.apps,avgGf:p.gf/p.apps,avgGa:p.ga/p.apps}))
+    .sort((a,b)=>b.apps-a.apps||b.winRate-a.winRate).slice(0,6);
+  return{players,withLineup};
+}
+
 async function analyzeSelected(){
   if(selectedIdx===null)return;
   const m=filteredMatches[selectedIdx];
@@ -236,18 +321,56 @@ async function analyzeSelected(){
   const card=document.getElementById('result-card');
   card.classList.remove('hidden');
   document.getElementById('result-title').textContent=`${m.home} vs ${m.away}`;
-  document.getElementById('result-sub').textContent=`${m.league} · AI 預測分析`;
-  document.getElementById('result-content').innerHTML='<div class="loading-state"><div class="spinner"></div><div>AI 分析中...</div></div>';
+  document.getElementById('result-sub').textContent=`${m.league} · 真實數據分析`;
+  const rc=document.getElementById('result-content');
+  rc.innerHTML='<div class="loading-state"><div class="spinner"></div><div>抓取兩隊歷史比賽資料中...</div></div>';
   card.scrollIntoView({behavior:'smooth',block:'nearest'});
-  const modelDesc={balanced:'綜合近期表現、主客場勝率、歷史對決、傷病情況',attack:'著重進攻火力、射門數、xG期望進球',defense:'側重防守穩定性、失球率、清零場次',form:'優先近5場戰績與球員狀態',historical:'重點參考歷史對決與大賽心理優勢'}[model];
-  const scoreInfo=(m.homeGoals!==null&&m.awayGoals!==null)?`目前比分：${m.homeGoals}-${m.awayGoals}（${m.status==='live'?'進行中':'已結束'}）`:'';
-  const prompt=`你是專業足球數據分析師。聯賽：${m.league}，主隊：${m.home}，客隊：${m.away}，${scoreInfo}場地：${m.venue}，分析方式：${modelDesc}。根據兩隊實力、歷史對決、傷停、主客場優勢預測：1.勝者 2.比分 3.三方勝率（加總100%整數）4.3-5個關鍵因素標籤 5.60字內總結。只回傳純JSON：{"winner":"隊名或平局","predictedScore":"X-X","homeWinPct":數字,"drawPct":數字,"awayWinPct":數字,"factors":[{"label":"標籤","type":"positive|negative|neutral"}],"summary":"總結"}`;
+
   try{
-    const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
+    // ① 近期戰績（拿 ID）② 詳細比賽（含 lineup）③ 歷史交手
+    const [homeLast,awayLast,h2h]=await Promise.all([
+      apiGet(`/fixtures?team=${m.homeId}&last=15`),
+      apiGet(`/fixtures?team=${m.awayId}&last=15`),
+      apiGet(`/fixtures/headtohead?h2h=${m.homeId}-${m.awayId}&last=10`)
+    ]);
+    const homeIds=homeLast.map(f=>f.fixture.id).slice(0,15).join('-');
+    const awayIds=awayLast.map(f=>f.fixture.id).slice(0,15).join('-');
+    rc.innerHTML='<div class="loading-state"><div class="spinner"></div><div>分析出場名單與球員數據中...</div></div>';
+    const [homeDetail,awayDetail]=await Promise.all([
+      homeIds?apiGet(`/fixtures?ids=${homeIds}`):Promise.resolve([]),
+      awayIds?apiGet(`/fixtures?ids=${awayIds}`):Promise.resolve([])
+    ]);
+
+    // 計算數據
+    const hs=computeTeamStats(homeDetail.length?homeDetail:homeLast,m.homeId);
+    const as=computeTeamStats(awayDetail.length?awayDetail:awayLast,m.awayId);
+    const hp=computePlayerPatterns(homeDetail,m.homeId);
+    const ap=computePlayerPatterns(awayDetail,m.awayId);
+    const h2hFin=h2h.filter(f=>FINISHED.includes(f.fixture.status.short)).slice(0,6);
+
+    // 先把「真實數據」區塊畫出來（不靠 AI）
+    rc.innerHTML=renderDataSections(m,hs,as,hp,ap,h2hFin)
+      +'<div class="data-section"><div class="data-section-title">⚡ AI 綜合預測</div><div class="loading-state" style="padding:30px"><div class="spinner"></div><div>Claude 分析中...</div></div></div>';
+
+    // 組裝帶真實數字的 prompt
+    const modelHint={balanced:'均衡看待攻守與近況',attack:'特別側重進攻火力',defense:'特別側重防守穩定',form:'特別側重近5場狀態',historical:'特別側重歷史交手'}[model];
+    const fmtP=arr=>arr.map(p=>`${p.name}(${p.apps}場/勝率${Math.round(p.winRate*100)}%/場均進${p.avgGf.toFixed(1)}失${p.avgGa.toFixed(1)})`).join('、')||'資料不足';
+    const h2hTxt=h2hFin.map(f=>`${f.teams.home.name} ${f.goals.home}-${f.goals.away} ${f.teams.away.name}`).join('；')||'無歷史交手紀錄';
+    const prompt=`你是專業足球數據分析師。以下為真實統計數據，請據此分析。
+賽事：${m.league}，主隊 ${m.home} vs 客隊 ${m.away}，場地 ${m.venue||'未知'}。${(m.homeGoals!=null&&m.awayGoals!=null)?`目前比分 ${m.homeGoals}-${m.awayGoals}（${m.status==='live'?'進行中':'已結束'}）。`:''}
+【${m.home}近${hs.n}場】${hs.w}勝${hs.d}平${hs.l}敗，場均進${hs.avgGf.toFixed(2)}球(進攻)、場均失${hs.avgGa.toFixed(2)}球(防守)，零失球率${Math.round(hs.csRate*100)}%，近況${hs.form.join('')}
+【${m.away}近${as.n}場】${as.w}勝${as.d}平${as.l}敗，場均進${as.avgGf.toFixed(2)}球(進攻)、場均失${as.avgGa.toFixed(2)}球(防守)，零失球率${Math.round(as.csRate*100)}%，近況${as.form.join('')}
+【歷史交手】${h2hTxt}
+【${m.home}關鍵先發】${fmtP(hp.players)}
+【${m.away}關鍵先發】${fmtP(ap.players)}
+分析取向：${modelHint}。請預測：1.勝者 2.比分 3.三方勝率(整數加總100) 4.3-5個關鍵因素標籤(根據上述數據) 5.70字內總結需引用具體數字。只回傳純JSON：{"winner":"隊名或平局","predictedScore":"X-X","homeWinPct":數字,"drawPct":數字,"awayWinPct":數字,"factors":[{"label":"標籤","type":"positive|negative|neutral"}],"summary":"總結"}`;
+
+    const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1200,messages:[{role:'user',content:prompt}]})});
     const data=await res.json();
     const text=data.content.map(b=>b.text||'').join('');
     const r=JSON.parse(text.replace(/```json|```/g,'').trim());
-    document.getElementById('result-content').innerHTML=`
+    // 把 AI 結果填回最上方
+    rc.innerHTML=`
       <div class="winner-banner"><div><div class="winner-label">預測勝者</div><div class="winner-name">${r.winner}</div></div><div style="text-align:right"><div class="winner-label">預測比分</div><div class="predicted-score">${r.predictedScore}</div></div></div>
       <div class="prob-title">勝負機率</div>
       <div class="prob-row"><div class="prob-label" title="${m.home}">${m.home}</div><div class="prob-track"><div class="prob-fill home" style="width:${r.homeWinPct}%"></div></div><div class="prob-pct">${r.homeWinPct}%</div></div>
@@ -255,9 +378,46 @@ async function analyzeSelected(){
       <div class="prob-row"><div class="prob-label" title="${m.away}">${m.away}</div><div class="prob-track"><div class="prob-fill away" style="width:${r.awayWinPct}%"></div></div><div class="prob-pct">${r.awayWinPct}%</div></div>
       <div class="factors-title">關鍵因素</div>
       <div class="factor-tags">${(r.factors||[]).map(f=>`<span class="factor-tag ${f.type}">${f.label}</span>`).join('')}</div>
-      <div class="ai-summary">${r.summary}</div>`;
-  }catch(e){document.getElementById('result-content').innerHTML='<div style="color:var(--red);padding:20px">分析失敗，請稍後再試。</div>'}
+      <div class="ai-summary">${r.summary}</div>`
+      +renderDataSections(m,hs,as,hp,ap,h2hFin);
+  }catch(e){
+    rc.innerHTML='<div style="color:var(--red);padding:20px">分析失敗：'+e.message+'<br><span style="color:var(--text3);font-size:12px">（大賽初期部分球隊歷史資料可能尚未齊全）</span></div>';
+  }
   btn.disabled=false;
+}
+
+// ── 畫出真實數據區塊：攻守對比 + 歷史比分 + 關鍵球員 ──
+function renderDataSections(m,hs,as,hp,ap,h2hFin){
+  const bar=(hv,av)=>{const t=hv+av||1;return[Math.round(hv/t*100),Math.round(av/t*100)]};
+  const statRow=(name,hv,av,fmt)=>{
+    const[hpct,apct]=bar(hv,av);
+    return`<div class="stat-row">
+      <div class="stat-bar-wrap left"><div class="stat-val left">${fmt(hv)}</div><div class="stat-bar"><div class="stat-bar-fill home" style="width:${hpct}%;float:right"></div></div></div>
+      <div class="stat-name">${name}</div>
+      <div class="stat-bar-wrap"><div class="stat-bar"><div class="stat-bar-fill away" style="width:${apct}%"></div></div><div class="stat-val right">${fmt(av)}</div></div>
+    </div>`;
+  };
+  const f1=v=>v.toFixed(2), pct=v=>Math.round(v*100)+'%';
+  const formPills=arr=>arr.map(r=>`<span class="form-pill ${r}">${r}</span>`).join('')||'<span style="color:var(--text3);font-size:11px">無</span>';
+  const attackDefense=`<div class="data-section"><div class="data-section-title">📊 攻守對比（近${hs.n}/${as.n}場）</div><div class="stat-compare">
+    ${statRow('場均進球',hs.avgGf,as.avgGf,f1)}
+    ${statRow('場均失球',hs.avgGa,as.avgGa,f1)}
+    ${statRow('零失球率',hs.csRate,as.csRate,pct)}
+    <div class="stat-row"><div class="stat-bar-wrap left"><div class="form-pills" style="flex-direction:row-reverse">${formPills(hs.form)}</div></div><div class="stat-name">近況</div><div class="stat-bar-wrap"><div class="form-pills">${formPills(as.form)}</div></div></div>
+  </div></div>`;
+
+  const h2hSection=`<div class="data-section"><div class="data-section-title">⚔️ 歷史交手</div>${h2hFin.length?`<div class="h2h-list">${h2hFin.map(f=>{
+    const d=new Date(f.fixture.date).toLocaleDateString('zh-TW',{year:'numeric',month:'numeric'});
+    return`<div class="h2h-item"><div class="h2h-team r">${f.teams.home.name}</div><div><div class="h2h-score">${f.goals.home} - ${f.goals.away}</div><div class="h2h-date">${d}</div></div><div class="h2h-team">${f.teams.away.name}</div></div>`;
+  }).join('')}</div>`:'<div class="data-note">查無兩隊歷史交手紀錄</div>'}</div>`;
+
+  const playerCol=(title,pat)=>`<div><div class="player-col-title">${title}</div>${pat.players.length?pat.players.map(p=>{
+    const wr=Math.round(p.winRate*100);const cls=wr>=60?'hi':wr>=40?'mid':'lo';
+    return`<div class="player-row"><div class="player-name">${p.name}</div><div class="player-stat"><span>${p.apps}場</span><span class="player-wr ${cls}">勝${wr}%</span><span>進${p.avgGf.toFixed(1)}</span></div></div>`;
+  }).join(''):`<div class="data-note">${pat.withLineup<2?'出場名單資料不足':'無常規先發資料'}</div>`}</div>`;
+  const playerSection=`<div class="data-section"><div class="data-section-title">👥 關鍵先發 × 戰績關聯</div><div class="player-cols">${playerCol(m.home,hp)}${playerCol(m.away,ap)}</div><div class="data-note">勝率＝該球員先發時球隊勝場占比；進＝該球員先發時球隊場均進球</div></div>`;
+
+  return attackDefense+h2hSection+playerSection;
 }
 
 function showStatus(type,msg){

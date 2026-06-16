@@ -45,14 +45,16 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
-  // ── Proxy: API-Football ──
-  if (pathname === '/api/football') {
+  // ── Proxy: API-Football（通用，可轉發任何端點）──
+  // 前端呼叫 /api/football/fixtures?... 或 /api/football/fixtures/headtohead?...
+  if (pathname.startsWith('/api/football/')) {
     const apiKey = req.headers['x-apisports-key'];
+    const endpoint = pathname.replace('/api/football', ''); // 例如 /fixtures 或 /fixtures/headtohead
     const query = parsed.search || '';
     try {
       const result = await httpsRequest({
         hostname: 'v3.football.api-sports.io',
-        path: '/fixtures' + query,
+        path: endpoint + query,
         method: 'GET',
         headers: { 'x-apisports-key': apiKey }
       });
