@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const url = require('url');
 
-const PORT = 3000;
+const PORT = process.env.PORT || 3000;
 
 // ── 讀取 Anthropic API 金鑰 ──
 // 優先用環境變數 ANTHROPIC_API_KEY；若沒有，改讀同資料夾的 anthropic-key.txt
