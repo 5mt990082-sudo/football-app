@@ -1,0 +1,604 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>足球 AI 預測</title>
+<style>
+:root{--bg:#0f1117;--surface:#1a1d27;--surface2:#22263a;--border:#2e3248;--accent:#4f8ef7;--accent2:#7c5af0;--green:#3ecf8e;--red:#f05252;--yellow:#f5a623;--text:#e8eaf0;--text2:#8b90a7;--text3:#555a72;--radius:12px;--radius-sm:8px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI','Noto Sans TC',sans-serif;font-size:14px;min-height:100vh}
+.top-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.logo{display:flex;align-items:center;gap:10px;font-weight:600;font-size:16px}
+.logo-icon{width:32px;height:32px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px}
+.live-pill{display:flex;align-items:center;gap:6px;background:rgba(62,207,142,0.1);border:1px solid rgba(62,207,142,0.3);color:var(--green);font-size:11px;font-weight:600;padding:4px 12px;border-radius:100px}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.main{max-width:1100px;margin:0 auto;padding:28px 24px;display:grid;grid-template-columns:320px 1fr;gap:24px}
+.sidebar{display:flex;flex-direction:column;gap:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+.card-title{font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.1em;margin-bottom:14px}
+label{font-size:12px;color:var(--text2);display:block;margin-bottom:6px;margin-top:12px}
+label:first-of-type{margin-top:0}
+select,input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:9px 12px;font-size:13px;font-family:inherit;outline:none;transition:border-color .15s}
+select:focus,input:focus{border-color:var(--accent)}
+.btn-primary{width:100%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;border-radius:var(--radius-sm);padding:11px;font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:opacity .15s,transform .1s;margin-top:16px}
+.btn-primary:hover{opacity:.9}.btn-primary:active{transform:scale(.98)}.btn-primary:disabled{opacity:.4;cursor:default;transform:none}
+.btn-analyze{width:100%;background:rgba(79,142,247,.1);border:1px solid rgba(79,142,247,.3);color:var(--accent);border-radius:var(--radius-sm);padding:11px;font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .15s;margin-top:4px}
+.btn-analyze:hover{background:rgba(79,142,247,.18)}.btn-analyze:disabled{opacity:.35;cursor:default}
+.tabs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;background:var(--surface2);padding:4px;border-radius:var(--radius-sm)}
+.tab{padding:7px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;color:var(--text2);border:none;background:transparent;transition:all .15s;text-align:center}
+.tab.active{background:var(--surface);color:var(--text);border:1px solid var(--border)}
+.content{display:flex;flex-direction:column;gap:16px}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.section-label{font-size:13px;font-weight:600;color:var(--text2)}
+.count-badge{font-size:11px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);padding:3px 9px;border-radius:100px}
+.matches-list{display:flex;flex-direction:column;gap:8px;max-height:460px;overflow-y:auto;padding-right:2px}
+.matches-list::-webkit-scrollbar{width:4px}.matches-list::-webkit-scrollbar-track{background:transparent}.matches-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+.match-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;cursor:pointer;transition:border-color .15s,background .15s}
+.match-card:hover{border-color:rgba(79,142,247,.4);background:var(--surface2)}
+.match-card.selected{border-color:var(--accent);background:rgba(79,142,247,.05);box-shadow:0 0 0 1px var(--accent) inset}
+.match-meta{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.meta-tag{font-size:11px;color:var(--text3)}
+.live-tag{font-size:10px;font-weight:700;background:rgba(240,82,82,.15);border:1px solid rgba(240,82,82,.3);color:#f07070;padding:2px 8px;border-radius:100px}
+.match-teams{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px}
+.team{display:flex;align-items:center;gap:10px}
+.team-away{flex-direction:row-reverse;text-align:right}
+.team-logo{width:28px;height:28px;object-fit:contain;border-radius:50%;background:var(--surface2);border:1px solid var(--border);padding:2px;flex-shrink:0}
+.team-placeholder{width:28px;height:28px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--text2);flex-shrink:0}
+.team-name{font-size:13px;font-weight:500;color:var(--text)}
+.score-box{text-align:center;min-width:66px}
+.score{font-size:20px;font-weight:700;letter-spacing:-0.5px}
+.vs{font-size:12px;color:var(--text3);font-weight:500}
+.empty-state{text-align:center;padding:60px 20px;color:var(--text3)}
+.empty-icon{font-size:38px;margin-bottom:12px}
+.loading-state{text-align:center;padding:60px 20px;color:var(--text2)}
+.spinner{width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 14px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.status-ok{background:rgba(62,207,142,.1);border:1px solid rgba(62,207,142,.25);color:var(--green);font-size:12px;padding:8px 12px;border-radius:var(--radius-sm);margin-top:10px}
+.status-warn{background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.25);color:var(--yellow);font-size:12px;padding:8px 12px;border-radius:var(--radius-sm);margin-top:10px;line-height:1.5}
+.result-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px}
+.result-card.hidden{display:none}
+.result-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+.result-title{font-size:15px;font-weight:600}
+.result-sub{font-size:12px;color:var(--text2);margin-top:2px}
+.winner-banner{background:linear-gradient(135deg,rgba(79,142,247,.08),rgba(124,90,240,.08));border:1px solid rgba(79,142,247,.2);border-radius:var(--radius);padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between}
+.winner-label{font-size:11px;color:var(--text2);margin-bottom:4px}
+.winner-name{font-size:20px;font-weight:700;color:var(--accent)}
+.predicted-score{font-size:28px;font-weight:700;letter-spacing:-1px;color:var(--text)}
+.prob-title{font-size:12px;color:var(--text2);margin-bottom:12px;font-weight:600}
+.prob-row{display:grid;grid-template-columns:120px 1fr 44px;align-items:center;gap:12px;margin-bottom:10px}
+.prob-label{font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prob-track{background:var(--surface2);border-radius:100px;height:8px;overflow:hidden}
+.prob-fill{height:100%;border-radius:100px;transition:width .8s cubic-bezier(.4,0,.2,1)}
+.prob-fill.home{background:linear-gradient(90deg,var(--accent),var(--accent2))}
+.prob-fill.draw{background:var(--text3)}
+.prob-fill.away{background:linear-gradient(90deg,var(--red),#f07070)}
+.prob-pct{font-size:13px;font-weight:600;text-align:right}
+.factors-title{font-size:12px;color:var(--text2);margin-bottom:8px;font-weight:600;margin-top:16px}
+.factor-tags{display:flex;flex-wrap:wrap;gap:6px}
+.factor-tag{font-size:12px;padding:4px 11px;border-radius:100px;font-weight:500}
+.factor-tag.positive{background:rgba(62,207,142,.12);border:1px solid rgba(62,207,142,.3);color:#5de0a8}
+.factor-tag.negative{background:rgba(240,82,82,.12);border:1px solid rgba(240,82,82,.3);color:#f07070}
+.factor-tag.neutral{background:rgba(79,142,247,.1);border:1px solid rgba(79,142,247,.25);color:#7aabf7}
+.ai-summary{font-size:13px;color:var(--text2);line-height:1.7;padding-top:16px;border-top:1px solid var(--border);margin-top:16px}
+.info-box{background:rgba(79,142,247,.06);border:1px solid rgba(79,142,247,.15);border-radius:var(--radius);padding:14px 16px;font-size:12px;color:var(--text2);line-height:1.7}
+.data-section{margin-top:20px;padding-top:18px;border-top:1px solid var(--border)}
+.data-section-title{font-size:12px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.08em;margin-bottom:14px;display:flex;align-items:center;gap:6px}
+.stat-compare{display:flex;flex-direction:column;gap:12px}
+.stat-row{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px}
+.stat-bar-wrap{display:flex;align-items:center;gap:8px}
+.stat-bar-wrap.left{flex-direction:row-reverse}
+.stat-bar{height:7px;border-radius:100px;background:var(--surface2);flex:1;overflow:hidden;position:relative}
+.stat-bar-fill{height:100%;border-radius:100px}
+.stat-bar-fill.home{background:linear-gradient(90deg,var(--accent2),var(--accent))}
+.stat-bar-fill.away{background:linear-gradient(90deg,var(--red),#f07070)}
+.stat-val{font-size:14px;font-weight:700;min-width:34px;text-align:center}
+.stat-val.left{text-align:right}.stat-val.right{text-align:left}
+.stat-name{font-size:11px;color:var(--text3);text-align:center;min-width:78px;font-weight:600}
+.form-pills{display:flex;gap:3px}
+.form-pill{width:18px;height:18px;border-radius:4px;font-size:10px;font-weight:700;display:flex;align-items:center;justify-content:center;color:#fff}
+.form-pill.W{background:var(--green)}.form-pill.D{background:var(--text3)}.form-pill.L{background:var(--red)}
+.h2h-list{display:flex;flex-direction:column;gap:6px}
+.h2h-item{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:10px;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);padding:8px 12px;font-size:12px}
+.h2h-team{color:var(--text2)}.h2h-team.r{text-align:right}
+.h2h-score{font-size:14px;font-weight:700;min-width:54px;text-align:center;letter-spacing:.5px}
+.h2h-date{font-size:10px;color:var(--text3);text-align:center;margin-top:2px}
+.player-cols{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+.player-col-title{font-size:12px;font-weight:600;color:var(--text);margin-bottom:10px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.player-row{display:flex;align-items:center;justify-content:space-between;gap:8px;padding:7px 0;border-bottom:1px solid var(--border)}
+.player-row:last-child{border-bottom:none}
+.player-name{font-size:12px;color:var(--text2);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.player-stat{font-size:11px;color:var(--text3);white-space:nowrap;display:flex;gap:8px;flex-shrink:0}
+.player-wr{font-weight:700}.player-wr.hi{color:var(--green)}.player-wr.mid{color:var(--yellow)}.player-wr.lo{color:var(--red)}
+.data-note{font-size:11px;color:var(--text3);font-style:italic;margin-top:8px}
+.xg-row{display:flex;justify-content:center;gap:24px;margin-bottom:14px}
+.xg-box{text-align:center}
+.xg-label{font-size:11px;color:var(--text3);margin-bottom:2px}
+.xg-val{font-size:20px;font-weight:700;color:var(--accent)}
+.xg-val.away{color:#f07070}
+.score-list{display:flex;flex-direction:column;gap:7px}
+.score-row{display:grid;grid-template-columns:54px 1fr 46px;align-items:center;gap:10px}
+.score-label{font-size:14px;font-weight:700;text-align:center;letter-spacing:.5px}
+.score-label.fav{color:var(--accent)}
+.score-track{background:var(--surface2);border-radius:100px;height:9px;overflow:hidden}
+.score-fill{height:100%;border-radius:100px;background:linear-gradient(90deg,var(--accent),var(--accent2))}
+.score-pct{font-size:12px;font-weight:600;text-align:right;color:var(--text2)}
+.intel-box{background:rgba(245,166,35,.08);border:1px solid rgba(245,166,35,.25);border-radius:var(--radius-sm);padding:10px 12px;margin-top:12px;font-size:12px;color:var(--text2);line-height:1.6}
+.intel-label{display:block;font-size:11px;font-weight:700;color:var(--yellow);margin-bottom:4px;letter-spacing:.05em}
+.adj-toggles{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.adj-toggle{font-size:11px;color:var(--text2);display:flex;align-items:flex-start;gap:7px;line-height:1.5;cursor:pointer;margin:0}
+.adj-toggle input{width:auto;margin-top:1px;flex-shrink:0;cursor:pointer}
+.adj-badge{display:inline-block;font-size:10px;font-weight:600;background:rgba(124,90,240,.14);border:1px solid rgba(124,90,240,.3);color:#a99af5;padding:3px 9px;border-radius:100px;margin-right:6px}
+.adj-badge.off{background:var(--surface2);border-color:var(--border);color:var(--text3)}
+.script-box{border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:10px;border:1px solid var(--border)}
+.script-box.main{background:rgba(79,142,247,.07);border-color:rgba(79,142,247,.3)}
+.script-box.hedge{background:rgba(245,166,35,.06);border-color:rgba(245,166,35,.25)}
+.script-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.script-tag{font-size:11px;font-weight:700;padding:2px 9px;border-radius:100px}
+.script-tag.main{background:rgba(79,142,247,.18);color:#7aabf7}
+.script-tag.hedge{background:rgba(245,166,35,.18);color:var(--yellow)}
+.script-sub{font-size:10px;color:var(--text3)}
+.script-score{font-size:22px;font-weight:700;letter-spacing:1px;margin-bottom:4px}
+.script-prob{font-size:13px;font-weight:600;color:var(--text2);letter-spacing:0}
+.script-desc{font-size:12px;color:var(--text2);line-height:1.6}
+@media(max-width:768px){.main{grid-template-columns:1fr;padding:16px}.matches-list{max-height:340px}.player-cols{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<header class="top-bar">
+  <div class="logo"><div class="logo-icon">⚽</div>足球 AI 預測</div>
+  <div class="live-pill"><div class="live-dot"></div>即時串接版</div>
+</header>
+<main class="main">
+  <aside class="sidebar">
+    <div class="card">
+      <div class="card-title">🔑 API 設定</div>
+      <label>API-Football Key</label>
+      <input type="password" id="api-key" placeholder="貼上你的 API Key" autocomplete="off">
+      <label>聯賽</label>
+      <select id="league-select">
+        <optgroup label="🏆 國際賽事">
+          <option value="1|2026">世界盃 2026（進行中）</option>
+          <option value="1|2022">世界盃 2022</option>
+          <option value="4|2024">歐洲盃 2024</option>
+          <option value="2|2024">歐冠 2024/25</option>
+        </optgroup>
+        <optgroup label="⚽ 五大聯賽 2024/25">
+          <option value="39|2024">英超 Premier League</option>
+          <option value="140|2024">西甲 La Liga</option>
+          <option value="135|2024">義甲 Serie A</option>
+          <option value="78|2024">德甲 Bundesliga</option>
+          <option value="61|2024">法甲 Ligue 1</option>
+        </optgroup>
+        <optgroup label="⚽ 五大聯賽 2023/24（歷史）">
+          <option value="39|2023">英超 2023/24</option>
+          <option value="140|2023">西甲 2023/24</option>
+          <option value="135|2023">義甲 2023/24</option>
+          <option value="78|2023">德甲 2023/24</option>
+          <option value="61|2023">法甲 2023/24</option>
+        </optgroup>
+      </select>
+      <label>日期範圍</label>
+      <select id="date-range">
+        <option value="3|7">前3天 ～ 後7天</option>
+        <option value="0|1">今天</option>
+        <option value="0|3">未來3天</option>
+        <option value="7|0">過去7天</option>
+        <option value="14|14">前後兩週</option>
+      </select>
+      <button class="btn-primary" id="fetch-btn" onclick="fetchMatches()">↻ 載入真實賽事</button>
+      <div id="status-bar"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">🤖 AI 分析</div>
+      <label>分析模型</label>
+      <select id="model-select">
+        <option value="balanced">均衡分析（推薦）</option>
+        <option value="attack">進攻導向</option>
+        <option value="defense">防守導向</option>
+        <option value="form">近況優先</option>
+        <option value="historical">歷史對決</option>
+      </select>
+      <button class="btn-analyze" id="analyze-btn" onclick="analyzeSelected()" disabled>✦ AI 分析選取場次</button>
+      <div class="adj-toggles">
+        <label class="adj-toggle"><input type="checkbox" id="adj-opener" checked> 大賽首戰修正（強隊領先後養生、比分傾向控制流）</label>
+        <label class="adj-toggle"><input type="checkbox" id="adj-dilution" checked> 含金量壓制（弱隊面對頂級強權時壓低反擊破門率）</label>
+      </div>
+    </div>
+    <div class="info-box">
+      <strong style="color:var(--text)">📌 使用說明</strong><br>
+      1. 確認 server.js 已用 node 執行<br>
+      2. 填入 API-Football Key<br>
+      3. 選聯賽 → 載入賽事<br>
+      4. 點場次 → AI 分析<br><br>
+      <strong style="color:var(--accent)">📊 分析內容</strong><br>
+      每場會抓兩隊近 15 場真實紀錄,計算進攻/防守強弱、零失球率、近況、歷史交手比分,以及「關鍵球員先發時的戰績關聯」,再交給 AI 綜合預測。<br>
+      <span style="color:var(--text3)">※ 每次分析約 5 次 API 呼叫;大賽初期部分出場名單資料可能尚未齊全。</span>
+    </div>
+  </aside>
+  <div class="content">
+    <div class="card" style="padding:16px 20px">
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab('upcoming')">⏰ 即將開賽</button>
+        <button class="tab" onclick="switchTab('live')">🔴 進行中</button>
+        <button class="tab" onclick="switchTab('finished')">✓ 已結束</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="section-header">
+        <span class="section-label" id="matches-label">請填入 API Key 並載入賽事</span>
+        <span class="count-badge" id="count-badge"></span>
+      </div>
+      <div class="matches-list" id="matches-list">
+        <div class="empty-state"><div class="empty-icon">⚽</div><div>填入 API Key 後點擊「載入真實賽事」</div></div>
+      </div>
+    </div>
+    <div class="result-card hidden" id="result-card">
+      <div class="result-header">
+        <div><div class="result-title" id="result-title">AI 分析結果</div><div class="result-sub" id="result-sub"></div></div>
+        <span style="font-size:22px">✦</span>
+      </div>
+      <div id="result-content"></div>
+    </div>
+  </div>
+</main>
+<script>
+const STATUS_MAP={NS:'upcoming',TBD:'upcoming',PST:'upcoming','1H':'live','2H':'live',HT:'live',ET:'live',P:'live',LIVE:'live',BT:'live',FT:'finished',AET:'finished',PEN:'finished',AWD:'finished',WO:'finished',SUSP:'finished',INT:'finished',ABD:'finished',CANC:'finished'};
+let currentTab='upcoming',allMatches=[],filteredMatches=[],selectedIdx=null;
+
+function switchTab(t){currentTab=t;selectedIdx=null;document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',['upcoming','live','finished'][i]===t));document.getElementById('analyze-btn').disabled=true;document.getElementById('result-card').classList.add('hidden');renderMatches()}
+
+async function fetchMatches(){
+  const apiKey=document.getElementById('api-key').value.trim();
+  if(!apiKey){showStatus('warn','請先填入 API Key');return}
+  const val=document.getElementById('league-select').value;
+  const[leagueId,season]=val.split('|');
+  const leagueName=document.getElementById('league-select').selectedOptions[0].text;
+  const[past,future]=document.getElementById('date-range').value.split('|').map(Number);
+  const btn=document.getElementById('fetch-btn');
+  btn.disabled=true;btn.textContent='載入中...';
+  showStatus('info','連線中...');
+  const today=new Date();
+  const from=new Date(today);from.setDate(from.getDate()-past);
+  const to=new Date(today);to.setDate(to.getDate()+future);
+  const fmt=d=>d.toISOString().split('T')[0];
+  try{
+    const res=await fetch(`/api/football/fixtures?league=${leagueId}&season=${season}&from=${fmt(from)}&to=${fmt(to)}`,{headers:{'x-apisports-key':apiKey}});
+    const data=await res.json();
+    if(data.errors&&Object.keys(data.errors).length>0)throw new Error(Object.values(data.errors).join(', '));
+    allMatches=(data.response||[]).map(f=>({id:f.fixture.id,status:STATUS_MAP[f.fixture.status.short]||'finished',statusShort:f.fixture.status.short,elapsed:f.fixture.status.elapsed,date:f.fixture.date,league:leagueName,leagueId,season,home:f.teams.home.name,homeId:f.teams.home.id,homeLogo:f.teams.home.logo,away:f.teams.away.name,awayId:f.teams.away.id,awayLogo:f.teams.away.logo,homeGoals:f.goals.home,awayGoals:f.goals.away,venue:f.fixture.venue?.name||''}));
+    showStatus('ok',`✓ 取得 ${allMatches.length} 場 ${leagueName} 真實賽事`);
+    renderMatches();
+  }catch(e){showStatus('warn','API 錯誤：'+e.message)}
+  btn.disabled=false;btn.textContent='↻ 載入真實賽事';
+}
+
+function renderMatches(){
+  filteredMatches=allMatches.filter(m=>m.status===currentTab);
+  const label=currentTab==='upcoming'?'即將開賽':currentTab==='live'?'進行中':'已結束';
+  document.getElementById('matches-label').textContent=label;
+  document.getElementById('count-badge').textContent=filteredMatches.length?`${filteredMatches.length} 場`:'';
+  if(!filteredMatches.length){document.getElementById('matches-list').innerHTML=`<div class="empty-state"><div class="empty-icon">📅</div><div>沒有「${label}」場次</div></div>`;return}
+  document.getElementById('matches-list').innerHTML=filteredMatches.map((m,i)=>{
+    const dt=new Date(m.date);
+    const ts=dt.toLocaleString('zh-TW',{month:'numeric',day:'numeric',weekday:'short',hour:'2-digit',minute:'2-digit'});
+    const sc=(m.homeGoals!==null&&m.awayGoals!==null)?`${m.homeGoals} - ${m.awayGoals}`:null;
+    const lh=m.homeLogo?`<img class="team-logo" src="${m.homeLogo}" alt="" onerror="this.outerHTML='<div class=team-placeholder>${m.home.substring(0,2).toUpperCase()}</div>'">`:`<div class="team-placeholder">${m.home.substring(0,2).toUpperCase()}</div>`;
+    const la=m.awayLogo?`<img class="team-logo" src="${m.awayLogo}" alt="" onerror="this.outerHTML='<div class=team-placeholder>${m.away.substring(0,2).toUpperCase()}</div>'">`:`<div class="team-placeholder">${m.away.substring(0,2).toUpperCase()}</div>`;
+    return`<div class="match-card" id="mc${i}" onclick="selectMatch(${i})"><div class="match-meta"><span class="meta-tag">🕐 ${ts}</span>${m.venue?`<span class="meta-tag">📍 ${m.venue}</span>`:''} ${m.status==='live'?`<span class="live-tag">● LIVE${m.elapsed?" "+m.elapsed+"'":""}</span>`:''}</div><div class="match-teams"><div class="team">${lh}<span class="team-name">${m.home}</span></div><div class="score-box">${sc?`<div class="score">${sc}</div>`:`<div class="vs">VS</div>`}</div><div class="team team-away"><span class="team-name">${m.away}</span>${la}</div></div></div>`;
+  }).join('');
+}
+
+function selectMatch(i){selectedIdx=i;document.querySelectorAll('.match-card').forEach((c,j)=>c.classList.toggle('selected',j===i));document.getElementById('analyze-btn').disabled=false;document.getElementById('result-card').classList.add('hidden')}
+
+// ── API helper（透過後端代理，可帶快取）──
+const apiCache={};
+async function apiGet(path){
+  if(apiCache[path])return apiCache[path];
+  const res=await fetch('/api/football'+path,{headers:{'x-apisports-key':document.getElementById('api-key').value.trim()}});
+  const data=await res.json();
+  if(data.errors&&Object.keys(data.errors).length>0)throw new Error(Object.values(data.errors).join(', '));
+  const out=data.response||[];
+  apiCache[path]=out;
+  return out;
+}
+
+const FINISHED=['FT','AET','PEN'];
+
+// ── Poisson 波膽模型（含大賽修正）──
+function factorial(n){let r=1;for(let i=2;i<=n;i++)r*=i;return r;}
+function poissonP(k,lambda){return Math.pow(lambda,k)*Math.exp(-lambda)/factorial(k);}
+
+// 修正係數（可自行微調）
+const ADJ={
+  openerFav:0.80,   // 大賽首戰：強隊進球期望下調（領先後養生）
+  openerDog:0.88,   // 大賽首戰：弱隊也略降（節奏放慢）
+  eliteSuppress:0.45, // 含金量過濾：弱隊面對頂級強權的壓制係數(0.3~0.5)
+  chaosFavBoost:1.30  // B劇本：對攻拉開時強隊進球上修
+};
+// B劇本：弱隊在對攻中也獲得機會的上修係數
+const CHAOS_DOG_BOOST=1.25;
+// 頂級傳控/高強中場球隊（弱隊面對它們時觸發含金量壓制）
+const ELITE=['France','Spain','England','Brazil','Argentina','Germany','Portugal','Netherlands','Italy','Belgium'];
+
+// 由場均進失球推算原始預期進球
+function rawLambdas(hs,as){
+  const leagueAvg=((hs.avgGf+as.avgGf+hs.avgGa+as.avgGa)/4)||1;
+  let hL=hs.avgGf*as.avgGa/leagueAvg;
+  let aL=as.avgGf*hs.avgGa/leagueAvg;
+  hL*=1.05; aL*=0.97;
+  return{hL:Math.max(0.2,hL||0.2),aL:Math.max(0.2,aL||0.2)};
+}
+
+// 給定兩隊 λ，算出完整比分機率網格
+function poissonGrid(hL,aL){
+  hL=Math.min(5,Math.max(0.12,hL)); aL=Math.min(5,Math.max(0.12,aL));
+  const MAX=8;let homeWin=0,draw=0,awayWin=0,btts=0,over25=0;const scores=[];
+  for(let i=0;i<=MAX;i++)for(let j=0;j<=MAX;j++){
+    const p=poissonP(i,hL)*poissonP(j,aL);
+    if(i>j)homeWin+=p;else if(i===j)draw+=p;else awayWin+=p;
+    if(i>0&&j>0)btts+=p;
+    if(i+j>=3)over25+=p;
+    scores.push({h:i,a:j,p});
+  }
+  const tot=(homeWin+draw+awayWin)||1;
+  homeWin/=tot;draw/=tot;awayWin/=tot;btts/=tot;over25/=tot;
+  scores.forEach(s=>s.p/=tot);scores.sort((a,b)=>b.p-a.p);
+  return{hL,aL,homeWin,draw,awayWin,btts,over25,top:scores.slice(0,8),mode:scores[0]};
+}
+
+// 主函式：套用三大修正，輸出控制流 + 暴走流雙劇本
+function buildPrediction(m,hs,as,opts){
+  const raw=rawLambdas(hs,as);
+  const homeFav=raw.hL>=raw.aL;
+  const favName=homeFav?m.home:m.away, dogName=homeFav?m.away:m.home;
+  const favElite=ELITE.includes(favName);
+  const useDilution=opts.dilution&&favElite;   // 弱隊面對 elite 才壓制
+  const useOpener=opts.opener;
+
+  // 【A 劇本：大賽控制流】套用含金量壓制 + 大賽首戰下調
+  let hC=raw.hL, aC=raw.aL;
+  if(useDilution){ if(homeFav) aC*=ADJ.eliteSuppress; else hC*=ADJ.eliteSuppress; }
+  if(useOpener){
+    if(homeFav){hC*=ADJ.openerFav; aC*=ADJ.openerDog;}
+    else{aC*=ADJ.openerFav; hC*=ADJ.openerDog;}
+  }
+  const control=poissonGrid(hC,aC);
+
+  // 【B 劇本：防翻車暴走流】強隊大幅上修、弱隊也獲得對攻機會（防線拉開）
+  let hB=raw.hL, aB=raw.aL;
+  if(homeFav){hB*=ADJ.chaosFavBoost; aB*=CHAOS_DOG_BOOST;} else {aB*=ADJ.chaosFavBoost; hB*=CHAOS_DOG_BOOST;}
+  const chaos=poissonGrid(hB,aB);
+
+  // A劇本主推：控制流中最可能的「低比分」(總分≤2)
+  const scenA=control.top.find(s=>(s.h+s.a)<=2)||control.top[0];
+  // B劇本防冷：暴走流中最可能的「大比分」(總分≥3)
+  const scenB=chaos.top.find(s=>(s.h+s.a)>=3)||chaos.top[0];
+
+  return{control,chaos,scenA,scenB,favName,dogName,homeFav,useDilution,useOpener,favElite,
+    overUnder:control.over25>=0.5?'over':'under'};
+}
+
+// ── 從近期比賽算進攻/防守數據 ──
+function computeTeamStats(fixtures,teamId){
+  let n=0,gf=0,ga=0,w=0,d=0,l=0,cs=0;const form=[];
+  for(const f of fixtures){
+    if(!FINISHED.includes(f.fixture.status.short))continue;
+    const home=f.teams.home.id===teamId;
+    const my=home?f.goals.home:f.goals.away, op=home?f.goals.away:f.goals.home;
+    if(my==null||op==null)continue;
+    n++;gf+=my;ga+=op;
+    if(op===0)cs++;
+    const r=my>op?'W':my===op?'D':'L';if(r==='W')w++;else if(r==='D')d++;else l++;
+    form.push(r);
+  }
+  return{n,w,d,l,cs,avgGf:n?gf/n:0,avgGa:n?ga/n:0,csRate:n?cs/n:0,form:form.slice(0,5)};
+}
+
+// ── 隊員出場 × 勝負關聯（從含 lineup 的詳細比賽算）──
+function computePlayerPatterns(fixtures,teamId){
+  const map={};let withLineup=0;
+  for(const f of fixtures){
+    if(!FINISHED.includes(f.fixture.status.short))continue;
+    const lu=(f.lineups||[]).find(x=>x.team&&x.team.id===teamId);
+    if(!lu||!lu.startXI||!lu.startXI.length)continue;
+    withLineup++;
+    const home=f.teams.home.id===teamId;
+    const my=home?f.goals.home:f.goals.away, op=home?f.goals.away:f.goals.home;
+    if(my==null||op==null)continue;
+    const res=my>op?'w':my===op?'d':'l';
+    for(const it of lu.startXI){
+      const p=it.player;if(!p)continue;const k=p.id;
+      if(!map[k])map[k]={name:p.name,apps:0,w:0,d:0,l:0,gf:0,ga:0};
+      const e=map[k];e.apps++;e[res]++;e.gf+=my;e.ga+=op;
+    }
+  }
+  const players=Object.values(map).filter(p=>p.apps>=2)
+    .map(p=>({...p,winRate:p.w/p.apps,avgGf:p.gf/p.apps,avgGa:p.ga/p.apps}))
+    .sort((a,b)=>b.apps-a.apps||b.winRate-a.winRate).slice(0,6);
+  return{players,withLineup};
+}
+
+async function analyzeSelected(){
+  if(selectedIdx===null)return;
+  const m=filteredMatches[selectedIdx];
+  const model=document.getElementById('model-select').value;
+  const btn=document.getElementById('analyze-btn');
+  btn.disabled=true;
+  const card=document.getElementById('result-card');
+  card.classList.remove('hidden');
+  document.getElementById('result-title').textContent=`${m.home} vs ${m.away}`;
+  document.getElementById('result-sub').textContent=`${m.league} · 真實數據分析`;
+  const rc=document.getElementById('result-content');
+  rc.innerHTML='<div class="loading-state"><div class="spinner"></div><div>抓取兩隊歷史比賽資料中...</div></div>';
+  card.scrollIntoView({behavior:'smooth',block:'nearest'});
+
+  try{
+    // ① 近期戰績（拿 ID）② 詳細比賽（含 lineup）③ 歷史交手
+    const [homeLast,awayLast,h2h]=await Promise.all([
+      apiGet(`/fixtures?team=${m.homeId}&last=15`),
+      apiGet(`/fixtures?team=${m.awayId}&last=15`),
+      apiGet(`/fixtures/headtohead?h2h=${m.homeId}-${m.awayId}&last=10`)
+    ]);
+    const homeIds=homeLast.map(f=>f.fixture.id).slice(0,15).join('-');
+    const awayIds=awayLast.map(f=>f.fixture.id).slice(0,15).join('-');
+    rc.innerHTML='<div class="loading-state"><div class="spinner"></div><div>分析出場名單與球員數據中...</div></div>';
+    const [homeDetail,awayDetail]=await Promise.all([
+      homeIds?apiGet(`/fixtures?ids=${homeIds}`):Promise.resolve([]),
+      awayIds?apiGet(`/fixtures?ids=${awayIds}`):Promise.resolve([])
+    ]);
+
+    // 計算數據
+    const hs=computeTeamStats(homeDetail.length?homeDetail:homeLast,m.homeId);
+    const as=computeTeamStats(awayDetail.length?awayDetail:awayLast,m.awayId);
+    const hp=computePlayerPatterns(homeDetail,m.homeId);
+    const ap=computePlayerPatterns(awayDetail,m.awayId);
+    const h2hFin=h2h.filter(f=>FINISHED.includes(f.fixture.status.short)).slice(0,6);
+
+    // ── Poisson 波膽模型（核心預測，不靠 AI）──
+    const opts={opener:document.getElementById('adj-opener').checked,dilution:document.getElementById('adj-dilution').checked};
+    const pred=buildPrediction(m,hs,as,opts);
+    const c=pred.control;
+    const pctI=v=>Math.round(v*100);
+    const mWinner=(c.homeWin>=c.draw&&c.homeWin>=c.awayWin)?m.home:(c.awayWin>=c.draw?m.away:'平局');
+    const predBlock=renderPrediction(m,pred,mWinner);
+    const dataHTML=renderDataSections(m,hs,as,hp,ap,h2hFin);
+
+    // 先畫「模型預測 + 真實數據」，AI 觀點顯示載入中（即使 AI 掛掉，預測也已完成）
+    rc.innerHTML=predBlock
+      +'<div class="data-section"><div class="data-section-title">🤖 AI 觀點</div><div class="loading-state" style="padding:20px"><div class="spinner"></div><div>Claude 上網查賽前情報並解讀中...</div><div style="font-size:11px;color:var(--text3);margin-top:6px">(含網路搜尋，約需 10～30 秒)</div></div></div>'
+      +dataHTML;
+
+    // 組裝 prompt：把雙劇本模型結果與真實數字交給 AI 解讀
+    const modelHint={balanced:'均衡看待攻守與近況',attack:'特別側重進攻火力',defense:'特別側重防守穩定',form:'特別側重近5場狀態',historical:'特別側重歷史交手'}[model];
+    const fmtP=arr=>arr.map(p=>`${p.name}(${p.apps}場/勝率${Math.round(p.winRate*100)}%/場均進${p.avgGf.toFixed(1)}失${p.avgGa.toFixed(1)})`).join('、')||'資料不足';
+    const h2hTxt=h2hFin.map(f=>`${f.teams.home.name} ${f.goals.home}-${f.goals.away} ${f.teams.away.name}`).join('；')||'無歷史交手紀錄';
+    const adjTxt=[pred.useOpener?'大賽首戰停利下調':'',pred.useDilution?`含金量壓制(${pred.dogName}面對頂級強權${pred.favName})`:''].filter(Boolean).join('、')||'未套用大賽修正';
+    const prompt=`你是頂級足球戰術分析師。下方為真實統計與「已套用大賽修正」的雙劇本 Poisson 模型結果（機率已算出，不需重算）。
+請先用 web_search 查這場最新賽前資訊（傷停、停賽、預期先發、近期狀態、教練談話），**只採用可信來源**（球隊/協會官網、FIFA、BBC Sport、ESPN、Reuters、The Athletic、Sky Sports），避免論壇與內容農場。再結合下方資料做戰術解讀。
+賽事：${m.league}，${m.home}(主) vs ${m.away}(客)，場地 ${m.venue||'未知'}。${(m.homeGoals!=null&&m.awayGoals!=null)?`目前比分 ${m.homeGoals}-${m.awayGoals}。`:''}
+【已套用修正】${adjTxt}
+【強弱判定】強隊=${pred.favName}，弱隊=${pred.dogName}
+【A劇本 大賽控制流(主推)】預期進球 主${c.hL.toFixed(2)}/客${c.aL.toFixed(2)}；勝率 主${pctI(c.homeWin)}% 平${pctI(c.draw)}% 客${pctI(c.awayWin)}%；主推低比分 ${pred.scenA.h}-${pred.scenA.a}；大小分 ${pred.overUnder==='over'?'大於':'小於'}2.5球(over ${pctI(c.over25)}%)
+【B劇本 防翻車暴走流(次推)】若弱隊早段掉球/紅牌致防線拉開，最可能大比分 ${pred.scenB.h}-${pred.scenB.a}
+【${m.home}近${hs.n}場】${hs.w}勝${hs.d}平${hs.l}敗，場均進${hs.avgGf.toFixed(2)}失${hs.avgGa.toFixed(2)}，零失球率${Math.round(hs.csRate*100)}%，近況${hs.form.join('')}
+【${m.away}近${as.n}場】${as.w}勝${as.d}平${as.l}敗，場均進${as.avgGf.toFixed(2)}失${as.avgGa.toFixed(2)}，零失球率${Math.round(as.csRate*100)}%，近況${as.form.join('')}
+【歷史交手】${h2hTxt}
+【${m.home}關鍵先發】${fmtP(hp.players)}
+【${m.away}關鍵先發】${fmtP(ap.players)}
+分析取向：${modelHint}。請給：1.factors：3-5個關鍵因素標籤(含雙方戰術盲點) 2.intel：80字內賽前情報重點(傷停/狀態/變數)，無可信結果寫「無重大賽前情報」 3.summary：100字內戰術總結，需點出此戰較可能走A劇本(控制)或有B劇本(暴走)風險、並說明模型沒涵蓋的臨場變數。只回傳純JSON：{"factors":[{"label":"標籤","type":"positive|negative|neutral"}],"intel":"情報重點","summary":"總結"}`;
+
+    // ── Claude 呼叫（含 web_search，限 4 次搜尋控制成本）：失敗也保留模型預測與真實數據 ──
+    try{
+      const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({
+        model:'claude-sonnet-4-6',
+        max_tokens:1600,
+        tools:[{type:'web_search_20250305',name:'web_search',max_uses:4}],
+        messages:[{role:'user',content:prompt}]
+      })});
+      const data=await res.json();
+      if(!data.content||!Array.isArray(data.content)){
+        const msg=(data.error&&(data.error.message||data.error))||data.message||JSON.stringify(data).slice(0,300);
+        throw new Error(typeof msg==='string'?msg:JSON.stringify(msg));
+      }
+      // 取出所有文字區塊（web_search 會夾帶工具區塊，只留 text）
+      const text=data.content.filter(b=>b.type==='text').map(b=>b.text||'').join('');
+      // 穩健擷取 JSON：抓第一個 { 到最後一個 }
+      const s=text.indexOf('{'), e=text.lastIndexOf('}');
+      if(s<0||e<0)throw new Error('AI 未回傳可解析結果');
+      const r=JSON.parse(text.slice(s,e+1));
+      const intelHTML=r.intel?`<div class="intel-box"><span class="intel-label">🔎 賽前情報</span>${r.intel}</div>`:'';
+      const aiHTML='<div class="data-section"><div class="data-section-title">🤖 AI 觀點（含網路情報）</div>'
+        +`<div class="factor-tags">${(r.factors||[]).map(f=>`<span class="factor-tag ${f.type}">${f.label}</span>`).join('')}</div>`
+        +intelHTML
+        +`<div class="ai-summary" style="border-top:none;padding-top:12px">${r.summary||''}</div></div>`;
+      rc.innerHTML=predBlock+aiHTML+dataHTML;
+    }catch(aiErr){
+      const hint=/ANTHROPIC_API_KEY|api[_-]?key|authentication|x-api-key|credit|balance/i.test(aiErr.message)?'<br>請確認 Anthropic 金鑰已設定且帳戶有額度。':'';
+      rc.innerHTML=predBlock+'<div class="status-warn" style="margin:0">⚠️ AI 觀點載入失敗：'+aiErr.message+hint+'<br><span style="opacity:.8">模型預測與真實數據不受影響。</span></div>'+dataHTML;
+    }
+  }catch(e){
+    rc.innerHTML='<div style="color:var(--red);padding:20px">資料抓取失敗：'+e.message+'<br><span style="color:var(--text3);font-size:12px">（大賽初期部分球隊歷史資料可能尚未齊全）</span></div>';
+  }
+  btn.disabled=false;
+}
+
+// ── 畫出模型預測：勝者 + 勝平負 + 大小分 + 雙劇本波膽 ──
+function renderPrediction(m,pred,mWinner){
+  const c=pred.control;
+  const pct=v=>Math.round(v*100);
+  const hw=pct(c.homeWin),dw=pct(c.draw),aw=pct(c.awayWin);
+  const maxP=c.top[0]?c.top[0].p:1;
+  const scoreRows=c.top.map((s,i)=>`<div class="score-row"><div class="score-label ${i===0?'fav':''}">${s.h}-${s.a}</div><div class="score-track"><div class="score-fill" style="width:${Math.round(s.p/maxP*100)}%"></div></div><div class="score-pct">${(s.p*100).toFixed(1)}%</div></div>`).join('');
+  const badges=[pred.useOpener?'<span class="adj-badge">大賽首戰停利</span>':'',pred.useDilution?'<span class="adj-badge">含金量壓制</span>':''].join('')||'<span class="adj-badge off">未套用大賽修正</span>';
+  const ouOver=pct(c.over25);
+  const ouRec=pred.overUnder==='over'?`大分（大於 2.5 球，${ouOver}%）`:`小分（小於 2.5 球，${100-ouOver}%）`;
+  const scenAp=(c.top.find(s=>s.h===pred.scenA.h&&s.a===pred.scenA.a)||{}).p;
+  return `
+    <div class="winner-banner"><div><div class="winner-label">模型預測勝者</div><div class="winner-name">${mWinner}</div></div><div style="text-align:right"><div class="winner-label">大小分推薦</div><div class="predicted-score" style="font-size:18px">${pred.overUnder==='over'?'大分':'小分'}</div></div></div>
+    <div style="margin:-6px 0 14px">${badges}</div>
+    <div class="prob-title">勝負機率（Poisson 模型 · 已修正）</div>
+    <div class="prob-row"><div class="prob-label" title="${m.home}">${m.home}</div><div class="prob-track"><div class="prob-fill home" style="width:${hw}%"></div></div><div class="prob-pct">${hw}%</div></div>
+    <div class="prob-row"><div class="prob-label">平局</div><div class="prob-track"><div class="prob-fill draw" style="width:${dw}%"></div></div><div class="prob-pct">${dw}%</div></div>
+    <div class="prob-row"><div class="prob-label" title="${m.away}">${m.away}</div><div class="prob-track"><div class="prob-fill away" style="width:${aw}%"></div></div><div class="prob-pct">${aw}%</div></div>
+
+    <div class="data-section"><div class="data-section-title">🎬 動態雙波膽劇本</div>
+      <div class="script-box main"><div class="script-head"><span class="script-tag main">A 劇本 · 控制流</span><span class="script-sub">主推 · 高機率</span></div>
+        <div class="script-score">${pred.scenA.h} - ${pred.scenA.a}${scenAp?` <span class="script-prob">${(scenAp*100).toFixed(1)}%</span>`:''}</div>
+        <div class="script-desc">${pred.favName}領先後放慢節奏、控球養生，全場走低比分控制；大小分偏${pred.overUnder==='over'?'大':'小'}。</div></div>
+      <div class="script-box hedge"><div class="script-head"><span class="script-tag hedge">B 劇本 · 暴走流</span><span class="script-sub">次推 · 防冷門</span></div>
+        <div class="script-score">${pred.scenB.h} - ${pred.scenB.a}</div>
+        <div class="script-desc">若${pred.dogName}前段紅牌/送點/低級失誤早早掉球，防線被迫拉開對攻，比分失控放大。</div></div>
+    </div>
+
+    <div class="data-section"><div class="data-section-title">🎯 波膽機率分布（控制流模型）</div>
+      <div class="xg-row"><div class="xg-box"><div class="xg-label">${m.home} 預期進球</div><div class="xg-val">${c.hL.toFixed(2)}</div></div><div class="xg-box"><div class="xg-label">${m.away} 預期進球</div><div class="xg-val away">${c.aL.toFixed(2)}</div></div></div>
+      <div class="score-list">${scoreRows}</div>
+      <div class="data-note">大小分推薦：${ouRec}　•　兩隊都進球 ${pct(c.btts)}%　•　機率經 Poisson 公式計算並套用大賽修正，非 AI 估計</div>
+    </div>`;
+}
+
+// ── 畫出真實數據區塊：攻守對比 + 歷史比分 + 關鍵球員 ──
+function renderDataSections(m,hs,as,hp,ap,h2hFin){
+  const bar=(hv,av)=>{const t=hv+av||1;return[Math.round(hv/t*100),Math.round(av/t*100)]};
+  const statRow=(name,hv,av,fmt)=>{
+    const[hpct,apct]=bar(hv,av);
+    return`<div class="stat-row">
+      <div class="stat-bar-wrap left"><div class="stat-val left">${fmt(hv)}</div><div class="stat-bar"><div class="stat-bar-fill home" style="width:${hpct}%;float:right"></div></div></div>
+      <div class="stat-name">${name}</div>
+      <div class="stat-bar-wrap"><div class="stat-bar"><div class="stat-bar-fill away" style="width:${apct}%"></div></div><div class="stat-val right">${fmt(av)}</div></div>
+    </div>`;
+  };
+  const f1=v=>v.toFixed(2), pct=v=>Math.round(v*100)+'%';
+  const formPills=arr=>arr.map(r=>`<span class="form-pill ${r}">${r}</span>`).join('')||'<span style="color:var(--text3);font-size:11px">無</span>';
+  const attackDefense=`<div class="data-section"><div class="data-section-title">📊 攻守對比（近${hs.n}/${as.n}場）</div><div class="stat-compare">
+    ${statRow('場均進球',hs.avgGf,as.avgGf,f1)}
+    ${statRow('場均失球',hs.avgGa,as.avgGa,f1)}
+    ${statRow('零失球率',hs.csRate,as.csRate,pct)}
+    <div class="stat-row"><div class="stat-bar-wrap left"><div class="form-pills" style="flex-direction:row-reverse">${formPills(hs.form)}</div></div><div class="stat-name">近況</div><div class="stat-bar-wrap"><div class="form-pills">${formPills(as.form)}</div></div></div>
+  </div></div>`;
+
+  const h2hSection=`<div class="data-section"><div class="data-section-title">⚔️ 歷史交手</div>${h2hFin.length?`<div class="h2h-list">${h2hFin.map(f=>{
+    const d=new Date(f.fixture.date).toLocaleDateString('zh-TW',{year:'numeric',month:'numeric'});
+    return`<div class="h2h-item"><div class="h2h-team r">${f.teams.home.name}</div><div><div class="h2h-score">${f.goals.home} - ${f.goals.away}</div><div class="h2h-date">${d}</div></div><div class="h2h-team">${f.teams.away.name}</div></div>`;
+  }).join('')}</div>`:'<div class="data-note">查無兩隊歷史交手紀錄</div>'}</div>`;
+
+  const playerCol=(title,pat)=>`<div><div class="player-col-title">${title}</div>${pat.players.length?pat.players.map(p=>{
+    const wr=Math.round(p.winRate*100);const cls=wr>=60?'hi':wr>=40?'mid':'lo';
+    return`<div class="player-row"><div class="player-name">${p.name}</div><div class="player-stat"><span>${p.apps}場</span><span class="player-wr ${cls}">勝${wr}%</span><span>進${p.avgGf.toFixed(1)}</span></div></div>`;
+  }).join(''):`<div class="data-note">${pat.withLineup<2?'出場名單資料不足':'無常規先發資料'}</div>`}</div>`;
+  const playerSection=`<div class="data-section"><div class="data-section-title">👥 關鍵先發 × 戰績關聯</div><div class="player-cols">${playerCol(m.home,hp)}${playerCol(m.away,ap)}</div><div class="data-note">勝率＝該球員先發時球隊勝場占比；進＝該球員先發時球隊場均進球</div></div>`;
+
+  return attackDefense+h2hSection+playerSection;
+}
+
+function showStatus(type,msg){
+  const el=document.getElementById('status-bar');
+  if(type==='ok')el.innerHTML=`<div class="status-ok">${msg}</div>`;
+  else if(type==='warn')el.innerHTML=`<div class="status-warn">⚠️ ${msg}</div>`;
+  else el.innerHTML=`<div style="margin-top:10px;color:var(--text2);font-size:12px;text-align:center">${msg}</div>`;
+}
+</script>
+</body>
+</html>
