@@ -112,6 +112,18 @@ select:focus,input:focus{border-color:var(--accent)}
 .player-stat{font-size:11px;color:var(--text3);white-space:nowrap;display:flex;gap:8px;flex-shrink:0}
 .player-wr{font-weight:700}.player-wr.hi{color:var(--green)}.player-wr.mid{color:var(--yellow)}.player-wr.lo{color:var(--red)}
 .data-note{font-size:11px;color:var(--text3);font-style:italic;margin-top:8px}
+.xg-row{display:flex;justify-content:center;gap:24px;margin-bottom:14px}
+.xg-box{text-align:center}
+.xg-label{font-size:11px;color:var(--text3);margin-bottom:2px}
+.xg-val{font-size:20px;font-weight:700;color:var(--accent)}
+.xg-val.away{color:#f07070}
+.score-list{display:flex;flex-direction:column;gap:7px}
+.score-row{display:grid;grid-template-columns:54px 1fr 46px;align-items:center;gap:10px}
+.score-label{font-size:14px;font-weight:700;text-align:center;letter-spacing:.5px}
+.score-label.fav{color:var(--accent)}
+.score-track{background:var(--surface2);border-radius:100px;height:9px;overflow:hidden}
+.score-fill{height:100%;border-radius:100px;background:linear-gradient(90deg,var(--accent),var(--accent2))}
+.score-pct{font-size:12px;font-weight:600;text-align:right;color:var(--text2)}
 @media(max-width:768px){.main{grid-template-columns:1fr;padding:16px}.matches-list{max-height:340px}.player-cols{grid-template-columns:1fr}}
 </style>
 </head>
@@ -272,6 +284,33 @@ async function apiGet(path){
 
 const FINISHED=['FT','AET','PEN'];
 
+// ── Poisson 波膽模型：用場均進失球算出每個比分的真實機率 ──
+function factorial(n){let r=1;for(let i=2;i<=n;i++)r*=i;return r;}
+function poissonP(k,lambda){return Math.pow(lambda,k)*Math.exp(-lambda)/factorial(k);}
+function poissonModel(hs,as){
+  // 用兩隊近期攻守推算各自「預期進球數」(標準 Poisson 強弱模型)
+  const leagueAvg=((hs.avgGf+as.avgGf+hs.avgGa+as.avgGa)/4)||1;
+  let hL=hs.avgGf*as.avgGa/leagueAvg;   // 主隊進攻 × 客隊防守弱點
+  let aL=as.avgGf*hs.avgGa/leagueAvg;   // 客隊進攻 × 主隊防守弱點
+  hL*=1.05; aL*=0.97;                   // 名義主場輕微優勢(中立場較弱)
+  hL=Math.min(5,Math.max(0.2,hL||0.2));
+  aL=Math.min(5,Math.max(0.2,aL||0.2));
+  const MAX=8;
+  let homeWin=0,draw=0,awayWin=0,btts=0,over25=0;const scores=[];
+  for(let i=0;i<=MAX;i++)for(let j=0;j<=MAX;j++){
+    const p=poissonP(i,hL)*poissonP(j,aL);
+    if(i>j)homeWin+=p;else if(i===j)draw+=p;else awayWin+=p;
+    if(i>0&&j>0)btts+=p;           // 兩隊都進球
+    if(i+j>=3)over25+=p;           // 大於2.5球
+    scores.push({h:i,a:j,p});
+  }
+  const tot=(homeWin+draw+awayWin)||1;
+  homeWin/=tot;draw/=tot;awayWin/=tot;btts/=tot;over25/=tot;
+  scores.forEach(s=>s.p/=tot);
+  scores.sort((a,b)=>b.p-a.p);
+  return{hL,aL,homeWin,draw,awayWin,btts,over25,top:scores.slice(0,8),mode:scores[0]};
+}
+
 // ── 從近期比賽算進攻/防守數據 ──
 function computeTeamStats(fixtures,teamId){
   let n=0,gf=0,ga=0,w=0,d=0,l=0,cs=0;const form=[];
@@ -348,26 +387,35 @@ async function analyzeSelected(){
     const ap=computePlayerPatterns(awayDetail,m.awayId);
     const h2hFin=h2h.filter(f=>FINISHED.includes(f.fixture.status.short)).slice(0,6);
 
-    // 先把「真實數據」區塊畫出來（不靠 AI，永遠保留）
+    // ── Poisson 波膽模型（核心預測，不靠 AI）──
+    const pm=poissonModel(hs,as);
+    const pctI=v=>Math.round(v*100);
+    const mWinner=(pm.homeWin>=pm.draw&&pm.homeWin>=pm.awayWin)?m.home:(pm.awayWin>=pm.draw?m.away:'平局');
+    const predBlock=renderPrediction(m,pm,mWinner);
     const dataHTML=renderDataSections(m,hs,as,hp,ap,h2hFin);
-    rc.innerHTML='<div class="data-section" style="margin-top:0;border-top:none;padding-top:0"><div class="data-section-title">⚡ AI 綜合預測</div><div class="loading-state" style="padding:24px"><div class="spinner"></div><div>Claude 分析中...</div></div></div>'+dataHTML;
 
-    // 組裝帶真實數字的 prompt
+    // 先畫「模型預測 + 真實數據」，AI 觀點顯示載入中（即使 AI 掛掉，預測也已完成）
+    rc.innerHTML=predBlock
+      +'<div class="data-section"><div class="data-section-title">🤖 AI 觀點</div><div class="loading-state" style="padding:20px"><div class="spinner"></div><div>Claude 解讀中...</div></div></div>'
+      +dataHTML;
+
+    // 組裝 prompt：把模型結果與真實數字交給 AI 解讀（機率已由模型算出）
     const modelHint={balanced:'均衡看待攻守與近況',attack:'特別側重進攻火力',defense:'特別側重防守穩定',form:'特別側重近5場狀態',historical:'特別側重歷史交手'}[model];
     const fmtP=arr=>arr.map(p=>`${p.name}(${p.apps}場/勝率${Math.round(p.winRate*100)}%/場均進${p.avgGf.toFixed(1)}失${p.avgGa.toFixed(1)})`).join('、')||'資料不足';
     const h2hTxt=h2hFin.map(f=>`${f.teams.home.name} ${f.goals.home}-${f.goals.away} ${f.teams.away.name}`).join('；')||'無歷史交手紀錄';
-    const prompt=`你是專業足球數據分析師。以下為真實統計數據，請據此分析。
-賽事：${m.league}，主隊 ${m.home} vs 客隊 ${m.away}，場地 ${m.venue||'未知'}。${(m.homeGoals!=null&&m.awayGoals!=null)?`目前比分 ${m.homeGoals}-${m.awayGoals}（${m.status==='live'?'進行中':'已結束'}）。`:''}
-【${m.home}近${hs.n}場】${hs.w}勝${hs.d}平${hs.l}敗，場均進${hs.avgGf.toFixed(2)}球(進攻)、場均失${hs.avgGa.toFixed(2)}球(防守)，零失球率${Math.round(hs.csRate*100)}%，近況${hs.form.join('')}
-【${m.away}近${as.n}場】${as.w}勝${as.d}平${as.l}敗，場均進${as.avgGf.toFixed(2)}球(進攻)、場均失${as.avgGa.toFixed(2)}球(防守)，零失球率${Math.round(as.csRate*100)}%，近況${as.form.join('')}
+    const prompt=`你是專業足球數據分析師。以下為真實統計與 Poisson 模型結果，請「解讀」（機率已由模型算出，不需重算）。
+賽事：${m.league}，${m.home}(主) vs ${m.away}(客)，場地 ${m.venue||'未知'}。${(m.homeGoals!=null&&m.awayGoals!=null)?`目前比分 ${m.homeGoals}-${m.awayGoals}。`:''}
+【模型結果】預期進球 ${m.home} ${pm.hL.toFixed(2)} / ${m.away} ${pm.aL.toFixed(2)}；勝率 主${pctI(pm.homeWin)}% 平${pctI(pm.draw)}% 客${pctI(pm.awayWin)}%；最可能比分 ${pm.mode.h}-${pm.mode.a}；兩隊都進球 ${pctI(pm.btts)}%；大於2.5球 ${pctI(pm.over25)}%
+【${m.home}近${hs.n}場】${hs.w}勝${hs.d}平${hs.l}敗，場均進${hs.avgGf.toFixed(2)}失${hs.avgGa.toFixed(2)}，零失球率${Math.round(hs.csRate*100)}%，近況${hs.form.join('')}
+【${m.away}近${as.n}場】${as.w}勝${as.d}平${as.l}敗，場均進${as.avgGf.toFixed(2)}失${as.avgGa.toFixed(2)}，零失球率${Math.round(as.csRate*100)}%，近況${as.form.join('')}
 【歷史交手】${h2hTxt}
 【${m.home}關鍵先發】${fmtP(hp.players)}
 【${m.away}關鍵先發】${fmtP(ap.players)}
-分析取向：${modelHint}。請預測：1.勝者 2.比分 3.三方勝率(整數加總100) 4.3-5個關鍵因素標籤(根據上述數據) 5.70字內總結需引用具體數字。只回傳純JSON：{"winner":"隊名或平局","predictedScore":"X-X","homeWinPct":數字,"drawPct":數字,"awayWinPct":數字,"factors":[{"label":"標籤","type":"positive|negative|neutral"}],"summary":"總結"}`;
+分析取向：${modelHint}。請給：1.根據數據的3-5個關鍵因素標籤 2.80字內總結(引用具體數字、呼應模型結果)。只回傳純JSON：{"factors":[{"label":"標籤","type":"positive|negative|neutral"}],"summary":"總結"}`;
 
-    // ── Claude 呼叫：獨立 try/catch，失敗也保留上面的真實數據 ──
+    // ── Claude 呼叫：獨立 try/catch，失敗也保留模型預測與真實數據 ──
     try{
-      const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1200,messages:[{role:'user',content:prompt}]})});
+      const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
       const data=await res.json();
       if(!data.content||!Array.isArray(data.content)){
         const msg=(data.error&&(data.error.message||data.error))||data.message||JSON.stringify(data).slice(0,300);
@@ -375,24 +423,37 @@ async function analyzeSelected(){
       }
       const text=data.content.map(b=>b.text||'').join('');
       const r=JSON.parse(text.replace(/```json|```/g,'').trim());
-      rc.innerHTML=`
-        <div class="winner-banner"><div><div class="winner-label">預測勝者</div><div class="winner-name">${r.winner}</div></div><div style="text-align:right"><div class="winner-label">預測比分</div><div class="predicted-score">${r.predictedScore}</div></div></div>
-        <div class="prob-title">勝負機率</div>
-        <div class="prob-row"><div class="prob-label" title="${m.home}">${m.home}</div><div class="prob-track"><div class="prob-fill home" style="width:${r.homeWinPct}%"></div></div><div class="prob-pct">${r.homeWinPct}%</div></div>
-        <div class="prob-row"><div class="prob-label">平局</div><div class="prob-track"><div class="prob-fill draw" style="width:${r.drawPct}%"></div></div><div class="prob-pct">${r.drawPct}%</div></div>
-        <div class="prob-row"><div class="prob-label" title="${m.away}">${m.away}</div><div class="prob-track"><div class="prob-fill away" style="width:${r.awayWinPct}%"></div></div><div class="prob-pct">${r.awayWinPct}%</div></div>
-        <div class="factors-title">關鍵因素</div>
-        <div class="factor-tags">${(r.factors||[]).map(f=>`<span class="factor-tag ${f.type}">${f.label}</span>`).join('')}</div>
-        <div class="ai-summary">${r.summary}</div>`+dataHTML;
+      const aiHTML='<div class="data-section"><div class="data-section-title">🤖 AI 觀點</div>'
+        +`<div class="factor-tags">${(r.factors||[]).map(f=>`<span class="factor-tag ${f.type}">${f.label}</span>`).join('')}</div>`
+        +`<div class="ai-summary" style="border-top:none;padding-top:12px">${r.summary||''}</div></div>`;
+      rc.innerHTML=predBlock+aiHTML+dataHTML;
     }catch(aiErr){
-      // AI 失敗：真實數據照常顯示，只標示 AI 那段出錯
-      const hint=/ANTHROPIC_API_KEY|api[_-]?key|authentication|x-api-key/i.test(aiErr.message)?'<br>請確認執行 server.js 前已設定 ANTHROPIC_API_KEY 環境變數。':'';
-      rc.innerHTML='<div class="status-warn" style="margin:0 0 4px">⚠️ AI 預測失敗：'+aiErr.message+hint+'<br><span style="opacity:.8">下方真實數據分析不受影響。</span></div>'+dataHTML;
+      const hint=/ANTHROPIC_API_KEY|api[_-]?key|authentication|x-api-key|credit|balance/i.test(aiErr.message)?'<br>請確認 Anthropic 金鑰已設定且帳戶有額度。':'';
+      rc.innerHTML=predBlock+'<div class="status-warn" style="margin:0">⚠️ AI 觀點載入失敗：'+aiErr.message+hint+'<br><span style="opacity:.8">模型預測與真實數據不受影響。</span></div>'+dataHTML;
     }
   }catch(e){
     rc.innerHTML='<div style="color:var(--red);padding:20px">資料抓取失敗：'+e.message+'<br><span style="color:var(--text3);font-size:12px">（大賽初期部分球隊歷史資料可能尚未齊全）</span></div>';
   }
   btn.disabled=false;
+}
+
+// ── 畫出模型預測：勝者 + 最可能比分 + 勝平負 + 波膽 ──
+function renderPrediction(m,pm,mWinner){
+  const pct=v=>Math.round(v*100);
+  const hw=pct(pm.homeWin),dw=pct(pm.draw),aw=pct(pm.awayWin);
+  const maxP=pm.top[0]?pm.top[0].p:1;
+  const scoreRows=pm.top.map((s,i)=>`<div class="score-row"><div class="score-label ${i===0?'fav':''}">${s.h}-${s.a}</div><div class="score-track"><div class="score-fill" style="width:${Math.round(s.p/maxP*100)}%"></div></div><div class="score-pct">${(s.p*100).toFixed(1)}%</div></div>`).join('');
+  return `
+    <div class="winner-banner"><div><div class="winner-label">模型預測勝者</div><div class="winner-name">${mWinner}</div></div><div style="text-align:right"><div class="winner-label">最可能比分</div><div class="predicted-score">${pm.mode.h}-${pm.mode.a}</div></div></div>
+    <div class="prob-title">勝負機率（Poisson 模型）</div>
+    <div class="prob-row"><div class="prob-label" title="${m.home}">${m.home}</div><div class="prob-track"><div class="prob-fill home" style="width:${hw}%"></div></div><div class="prob-pct">${hw}%</div></div>
+    <div class="prob-row"><div class="prob-label">平局</div><div class="prob-track"><div class="prob-fill draw" style="width:${dw}%"></div></div><div class="prob-pct">${dw}%</div></div>
+    <div class="prob-row"><div class="prob-label" title="${m.away}">${m.away}</div><div class="prob-track"><div class="prob-fill away" style="width:${aw}%"></div></div><div class="prob-pct">${aw}%</div></div>
+    <div class="data-section"><div class="data-section-title">🎯 波膽機率（最可能 8 個比分）</div>
+      <div class="xg-row"><div class="xg-box"><div class="xg-label">${m.home} 預期進球</div><div class="xg-val">${pm.hL.toFixed(2)}</div></div><div class="xg-box"><div class="xg-label">${m.away} 預期進球</div><div class="xg-val away">${pm.aL.toFixed(2)}</div></div></div>
+      <div class="score-list">${scoreRows}</div>
+      <div class="data-note">兩隊都進球 ${pct(pm.btts)}%　•　大於 2.5 球 ${pct(pm.over25)}%　•　機率由場均進失球經 Poisson 公式計算，非 AI 估計</div>
+    </div>`;
 }
 
 // ── 畫出真實數據區塊：攻守對比 + 歷史比分 + 關鍵球員 ──
