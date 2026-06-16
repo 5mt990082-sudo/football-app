@@ -126,6 +126,22 @@ select:focus,input:focus{border-color:var(--accent)}
 .score-pct{font-size:12px;font-weight:600;text-align:right;color:var(--text2)}
 .intel-box{background:rgba(245,166,35,.08);border:1px solid rgba(245,166,35,.25);border-radius:var(--radius-sm);padding:10px 12px;margin-top:12px;font-size:12px;color:var(--text2);line-height:1.6}
 .intel-label{display:block;font-size:11px;font-weight:700;color:var(--yellow);margin-bottom:4px;letter-spacing:.05em}
+.adj-toggles{margin-top:12px;display:flex;flex-direction:column;gap:8px}
+.adj-toggle{font-size:11px;color:var(--text2);display:flex;align-items:flex-start;gap:7px;line-height:1.5;cursor:pointer;margin:0}
+.adj-toggle input{width:auto;margin-top:1px;flex-shrink:0;cursor:pointer}
+.adj-badge{display:inline-block;font-size:10px;font-weight:600;background:rgba(124,90,240,.14);border:1px solid rgba(124,90,240,.3);color:#a99af5;padding:3px 9px;border-radius:100px;margin-right:6px}
+.adj-badge.off{background:var(--surface2);border-color:var(--border);color:var(--text3)}
+.script-box{border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:10px;border:1px solid var(--border)}
+.script-box.main{background:rgba(79,142,247,.07);border-color:rgba(79,142,247,.3)}
+.script-box.hedge{background:rgba(245,166,35,.06);border-color:rgba(245,166,35,.25)}
+.script-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
+.script-tag{font-size:11px;font-weight:700;padding:2px 9px;border-radius:100px}
+.script-tag.main{background:rgba(79,142,247,.18);color:#7aabf7}
+.script-tag.hedge{background:rgba(245,166,35,.18);color:var(--yellow)}
+.script-sub{font-size:10px;color:var(--text3)}
+.script-score{font-size:22px;font-weight:700;letter-spacing:1px;margin-bottom:4px}
+.script-prob{font-size:13px;font-weight:600;color:var(--text2);letter-spacing:0}
+.script-desc{font-size:12px;color:var(--text2);line-height:1.6}
 @media(max-width:768px){.main{grid-template-columns:1fr;padding:16px}.matches-list{max-height:340px}.player-cols{grid-template-columns:1fr}}
 </style>
 </head>
@@ -185,6 +201,10 @@ select:focus,input:focus{border-color:var(--accent)}
         <option value="historical">歷史對決</option>
       </select>
       <button class="btn-analyze" id="analyze-btn" onclick="analyzeSelected()" disabled>✦ AI 分析選取場次</button>
+      <div class="adj-toggles">
+        <label class="adj-toggle"><input type="checkbox" id="adj-opener" checked> 大賽首戰修正（強隊領先後養生、比分傾向控制流）</label>
+        <label class="adj-toggle"><input type="checkbox" id="adj-dilution" checked> 含金量壓制（弱隊面對頂級強權時壓低反擊破門率）</label>
+      </div>
     </div>
     <div class="info-box">
       <strong style="color:var(--text)">📌 使用說明</strong><br>
@@ -286,31 +306,78 @@ async function apiGet(path){
 
 const FINISHED=['FT','AET','PEN'];
 
-// ── Poisson 波膽模型：用場均進失球算出每個比分的真實機率 ──
+// ── Poisson 波膽模型（含大賽修正）──
 function factorial(n){let r=1;for(let i=2;i<=n;i++)r*=i;return r;}
 function poissonP(k,lambda){return Math.pow(lambda,k)*Math.exp(-lambda)/factorial(k);}
-function poissonModel(hs,as){
-  // 用兩隊近期攻守推算各自「預期進球數」(標準 Poisson 強弱模型)
+
+// 修正係數（可自行微調）
+const ADJ={
+  openerFav:0.80,   // 大賽首戰：強隊進球期望下調（領先後養生）
+  openerDog:0.88,   // 大賽首戰：弱隊也略降（節奏放慢）
+  eliteSuppress:0.45, // 含金量過濾：弱隊面對頂級強權的壓制係數(0.3~0.5)
+  chaosFavBoost:1.30  // B劇本：對攻拉開時強隊進球上修
+};
+// B劇本：弱隊在對攻中也獲得機會的上修係數
+const CHAOS_DOG_BOOST=1.25;
+// 頂級傳控/高強中場球隊（弱隊面對它們時觸發含金量壓制）
+const ELITE=['France','Spain','England','Brazil','Argentina','Germany','Portugal','Netherlands','Italy','Belgium'];
+
+// 由場均進失球推算原始預期進球
+function rawLambdas(hs,as){
   const leagueAvg=((hs.avgGf+as.avgGf+hs.avgGa+as.avgGa)/4)||1;
-  let hL=hs.avgGf*as.avgGa/leagueAvg;   // 主隊進攻 × 客隊防守弱點
-  let aL=as.avgGf*hs.avgGa/leagueAvg;   // 客隊進攻 × 主隊防守弱點
-  hL*=1.05; aL*=0.97;                   // 名義主場輕微優勢(中立場較弱)
-  hL=Math.min(5,Math.max(0.2,hL||0.2));
-  aL=Math.min(5,Math.max(0.2,aL||0.2));
-  const MAX=8;
-  let homeWin=0,draw=0,awayWin=0,btts=0,over25=0;const scores=[];
+  let hL=hs.avgGf*as.avgGa/leagueAvg;
+  let aL=as.avgGf*hs.avgGa/leagueAvg;
+  hL*=1.05; aL*=0.97;
+  return{hL:Math.max(0.2,hL||0.2),aL:Math.max(0.2,aL||0.2)};
+}
+
+// 給定兩隊 λ，算出完整比分機率網格
+function poissonGrid(hL,aL){
+  hL=Math.min(5,Math.max(0.12,hL)); aL=Math.min(5,Math.max(0.12,aL));
+  const MAX=8;let homeWin=0,draw=0,awayWin=0,btts=0,over25=0;const scores=[];
   for(let i=0;i<=MAX;i++)for(let j=0;j<=MAX;j++){
     const p=poissonP(i,hL)*poissonP(j,aL);
     if(i>j)homeWin+=p;else if(i===j)draw+=p;else awayWin+=p;
-    if(i>0&&j>0)btts+=p;           // 兩隊都進球
-    if(i+j>=3)over25+=p;           // 大於2.5球
+    if(i>0&&j>0)btts+=p;
+    if(i+j>=3)over25+=p;
     scores.push({h:i,a:j,p});
   }
   const tot=(homeWin+draw+awayWin)||1;
   homeWin/=tot;draw/=tot;awayWin/=tot;btts/=tot;over25/=tot;
-  scores.forEach(s=>s.p/=tot);
-  scores.sort((a,b)=>b.p-a.p);
+  scores.forEach(s=>s.p/=tot);scores.sort((a,b)=>b.p-a.p);
   return{hL,aL,homeWin,draw,awayWin,btts,over25,top:scores.slice(0,8),mode:scores[0]};
+}
+
+// 主函式：套用三大修正，輸出控制流 + 暴走流雙劇本
+function buildPrediction(m,hs,as,opts){
+  const raw=rawLambdas(hs,as);
+  const homeFav=raw.hL>=raw.aL;
+  const favName=homeFav?m.home:m.away, dogName=homeFav?m.away:m.home;
+  const favElite=ELITE.includes(favName);
+  const useDilution=opts.dilution&&favElite;   // 弱隊面對 elite 才壓制
+  const useOpener=opts.opener;
+
+  // 【A 劇本：大賽控制流】套用含金量壓制 + 大賽首戰下調
+  let hC=raw.hL, aC=raw.aL;
+  if(useDilution){ if(homeFav) aC*=ADJ.eliteSuppress; else hC*=ADJ.eliteSuppress; }
+  if(useOpener){
+    if(homeFav){hC*=ADJ.openerFav; aC*=ADJ.openerDog;}
+    else{aC*=ADJ.openerFav; hC*=ADJ.openerDog;}
+  }
+  const control=poissonGrid(hC,aC);
+
+  // 【B 劇本：防翻車暴走流】強隊大幅上修、弱隊也獲得對攻機會（防線拉開）
+  let hB=raw.hL, aB=raw.aL;
+  if(homeFav){hB*=ADJ.chaosFavBoost; aB*=CHAOS_DOG_BOOST;} else {aB*=ADJ.chaosFavBoost; hB*=CHAOS_DOG_BOOST;}
+  const chaos=poissonGrid(hB,aB);
+
+  // A劇本主推：控制流中最可能的「低比分」(總分≤2)
+  const scenA=control.top.find(s=>(s.h+s.a)<=2)||control.top[0];
+  // B劇本防冷：暴走流中最可能的「大比分」(總分≥3)
+  const scenB=chaos.top.find(s=>(s.h+s.a)>=3)||chaos.top[0];
+
+  return{control,chaos,scenA,scenB,favName,dogName,homeFav,useDilution,useOpener,favElite,
+    overUnder:control.over25>=0.5?'over':'under'};
 }
 
 // ── 從近期比賽算進攻/防守數據 ──
@@ -390,10 +457,12 @@ async function analyzeSelected(){
     const h2hFin=h2h.filter(f=>FINISHED.includes(f.fixture.status.short)).slice(0,6);
 
     // ── Poisson 波膽模型（核心預測，不靠 AI）──
-    const pm=poissonModel(hs,as);
+    const opts={opener:document.getElementById('adj-opener').checked,dilution:document.getElementById('adj-dilution').checked};
+    const pred=buildPrediction(m,hs,as,opts);
+    const c=pred.control;
     const pctI=v=>Math.round(v*100);
-    const mWinner=(pm.homeWin>=pm.draw&&pm.homeWin>=pm.awayWin)?m.home:(pm.awayWin>=pm.draw?m.away:'平局');
-    const predBlock=renderPrediction(m,pm,mWinner);
+    const mWinner=(c.homeWin>=c.draw&&c.homeWin>=c.awayWin)?m.home:(c.awayWin>=c.draw?m.away:'平局');
+    const predBlock=renderPrediction(m,pred,mWinner);
     const dataHTML=renderDataSections(m,hs,as,hp,ap,h2hFin);
 
     // 先畫「模型預測 + 真實數據」，AI 觀點顯示載入中（即使 AI 掛掉，預測也已完成）
@@ -401,20 +470,24 @@ async function analyzeSelected(){
       +'<div class="data-section"><div class="data-section-title">🤖 AI 觀點</div><div class="loading-state" style="padding:20px"><div class="spinner"></div><div>Claude 上網查賽前情報並解讀中...</div><div style="font-size:11px;color:var(--text3);margin-top:6px">(含網路搜尋，約需 10～30 秒)</div></div></div>'
       +dataHTML;
 
-    // 組裝 prompt：把模型結果與真實數字交給 AI 解讀（機率已由模型算出）
+    // 組裝 prompt：把雙劇本模型結果與真實數字交給 AI 解讀
     const modelHint={balanced:'均衡看待攻守與近況',attack:'特別側重進攻火力',defense:'特別側重防守穩定',form:'特別側重近5場狀態',historical:'特別側重歷史交手'}[model];
     const fmtP=arr=>arr.map(p=>`${p.name}(${p.apps}場/勝率${Math.round(p.winRate*100)}%/場均進${p.avgGf.toFixed(1)}失${p.avgGa.toFixed(1)})`).join('、')||'資料不足';
     const h2hTxt=h2hFin.map(f=>`${f.teams.home.name} ${f.goals.home}-${f.goals.away} ${f.teams.away.name}`).join('；')||'無歷史交手紀錄';
-    const prompt=`你是專業足球數據分析師。以下為真實統計與 Poisson 模型結果，機率已由模型算出，不需重算。
-請先使用 web_search 搜尋這場比賽的最新賽前資訊（傷停名單、停賽球員、預期先發、近期狀態、教練賽前談話、媒體預測），**只採用可信來源**（球隊/協會官網、FIFA、主流體育媒體如 BBC Sport、ESPN、Reuters、The Athletic、Sky Sports 等），避免論壇、內容農場、未具名爆料。搜尋後再結合下方數據做綜合解讀。
+    const adjTxt=[pred.useOpener?'大賽首戰停利下調':'',pred.useDilution?`含金量壓制(${pred.dogName}面對頂級強權${pred.favName})`:''].filter(Boolean).join('、')||'未套用大賽修正';
+    const prompt=`你是頂級足球戰術分析師。下方為真實統計與「已套用大賽修正」的雙劇本 Poisson 模型結果（機率已算出，不需重算）。
+請先用 web_search 查這場最新賽前資訊（傷停、停賽、預期先發、近期狀態、教練談話），**只採用可信來源**（球隊/協會官網、FIFA、BBC Sport、ESPN、Reuters、The Athletic、Sky Sports），避免論壇與內容農場。再結合下方資料做戰術解讀。
 賽事：${m.league}，${m.home}(主) vs ${m.away}(客)，場地 ${m.venue||'未知'}。${(m.homeGoals!=null&&m.awayGoals!=null)?`目前比分 ${m.homeGoals}-${m.awayGoals}。`:''}
-【模型結果】預期進球 ${m.home} ${pm.hL.toFixed(2)} / ${m.away} ${pm.aL.toFixed(2)}；勝率 主${pctI(pm.homeWin)}% 平${pctI(pm.draw)}% 客${pctI(pm.awayWin)}%；最可能比分 ${pm.mode.h}-${pm.mode.a}；兩隊都進球 ${pctI(pm.btts)}%；大於2.5球 ${pctI(pm.over25)}%
+【已套用修正】${adjTxt}
+【強弱判定】強隊=${pred.favName}，弱隊=${pred.dogName}
+【A劇本 大賽控制流(主推)】預期進球 主${c.hL.toFixed(2)}/客${c.aL.toFixed(2)}；勝率 主${pctI(c.homeWin)}% 平${pctI(c.draw)}% 客${pctI(c.awayWin)}%；主推低比分 ${pred.scenA.h}-${pred.scenA.a}；大小分 ${pred.overUnder==='over'?'大於':'小於'}2.5球(over ${pctI(c.over25)}%)
+【B劇本 防翻車暴走流(次推)】若弱隊早段掉球/紅牌致防線拉開，最可能大比分 ${pred.scenB.h}-${pred.scenB.a}
 【${m.home}近${hs.n}場】${hs.w}勝${hs.d}平${hs.l}敗，場均進${hs.avgGf.toFixed(2)}失${hs.avgGa.toFixed(2)}，零失球率${Math.round(hs.csRate*100)}%，近況${hs.form.join('')}
 【${m.away}近${as.n}場】${as.w}勝${as.d}平${as.l}敗，場均進${as.avgGf.toFixed(2)}失${as.avgGa.toFixed(2)}，零失球率${Math.round(as.csRate*100)}%，近況${as.form.join('')}
 【歷史交手】${h2hTxt}
 【${m.home}關鍵先發】${fmtP(hp.players)}
 【${m.away}關鍵先發】${fmtP(ap.players)}
-分析取向：${modelHint}。請給：1.根據數據與情報的3-5個關鍵因素標籤 2.intel：80字內條列查到的賽前情報重點(傷停/狀態/變數)，若搜尋無可信結果就寫「無重大賽前情報」 3.summary：90字內總結(結合模型結果與情報，指出模型沒涵蓋的變數)。最後只回傳純JSON（不要其他文字）：{"factors":[{"label":"標籤","type":"positive|negative|neutral"}],"intel":"情報重點","summary":"總結"}`;
+分析取向：${modelHint}。請給：1.factors：3-5個關鍵因素標籤(含雙方戰術盲點) 2.intel：80字內賽前情報重點(傷停/狀態/變數)，無可信結果寫「無重大賽前情報」 3.summary：100字內戰術總結，需點出此戰較可能走A劇本(控制)或有B劇本(暴走)風險、並說明模型沒涵蓋的臨場變數。只回傳純JSON：{"factors":[{"label":"標籤","type":"positive|negative|neutral"}],"intel":"情報重點","summary":"總結"}`;
 
     // ── Claude 呼叫（含 web_search，限 4 次搜尋控制成本）：失敗也保留模型預測與真實數據 ──
     try{
@@ -451,22 +524,38 @@ async function analyzeSelected(){
   btn.disabled=false;
 }
 
-// ── 畫出模型預測：勝者 + 最可能比分 + 勝平負 + 波膽 ──
-function renderPrediction(m,pm,mWinner){
+// ── 畫出模型預測：勝者 + 勝平負 + 大小分 + 雙劇本波膽 ──
+function renderPrediction(m,pred,mWinner){
+  const c=pred.control;
   const pct=v=>Math.round(v*100);
-  const hw=pct(pm.homeWin),dw=pct(pm.draw),aw=pct(pm.awayWin);
-  const maxP=pm.top[0]?pm.top[0].p:1;
-  const scoreRows=pm.top.map((s,i)=>`<div class="score-row"><div class="score-label ${i===0?'fav':''}">${s.h}-${s.a}</div><div class="score-track"><div class="score-fill" style="width:${Math.round(s.p/maxP*100)}%"></div></div><div class="score-pct">${(s.p*100).toFixed(1)}%</div></div>`).join('');
+  const hw=pct(c.homeWin),dw=pct(c.draw),aw=pct(c.awayWin);
+  const maxP=c.top[0]?c.top[0].p:1;
+  const scoreRows=c.top.map((s,i)=>`<div class="score-row"><div class="score-label ${i===0?'fav':''}">${s.h}-${s.a}</div><div class="score-track"><div class="score-fill" style="width:${Math.round(s.p/maxP*100)}%"></div></div><div class="score-pct">${(s.p*100).toFixed(1)}%</div></div>`).join('');
+  const badges=[pred.useOpener?'<span class="adj-badge">大賽首戰停利</span>':'',pred.useDilution?'<span class="adj-badge">含金量壓制</span>':''].join('')||'<span class="adj-badge off">未套用大賽修正</span>';
+  const ouOver=pct(c.over25);
+  const ouRec=pred.overUnder==='over'?`大分（大於 2.5 球，${ouOver}%）`:`小分（小於 2.5 球，${100-ouOver}%）`;
+  const scenAp=(c.top.find(s=>s.h===pred.scenA.h&&s.a===pred.scenA.a)||{}).p;
   return `
-    <div class="winner-banner"><div><div class="winner-label">模型預測勝者</div><div class="winner-name">${mWinner}</div></div><div style="text-align:right"><div class="winner-label">最可能比分</div><div class="predicted-score">${pm.mode.h}-${pm.mode.a}</div></div></div>
-    <div class="prob-title">勝負機率（Poisson 模型）</div>
+    <div class="winner-banner"><div><div class="winner-label">模型預測勝者</div><div class="winner-name">${mWinner}</div></div><div style="text-align:right"><div class="winner-label">大小分推薦</div><div class="predicted-score" style="font-size:18px">${pred.overUnder==='over'?'大分':'小分'}</div></div></div>
+    <div style="margin:-6px 0 14px">${badges}</div>
+    <div class="prob-title">勝負機率（Poisson 模型 · 已修正）</div>
     <div class="prob-row"><div class="prob-label" title="${m.home}">${m.home}</div><div class="prob-track"><div class="prob-fill home" style="width:${hw}%"></div></div><div class="prob-pct">${hw}%</div></div>
     <div class="prob-row"><div class="prob-label">平局</div><div class="prob-track"><div class="prob-fill draw" style="width:${dw}%"></div></div><div class="prob-pct">${dw}%</div></div>
     <div class="prob-row"><div class="prob-label" title="${m.away}">${m.away}</div><div class="prob-track"><div class="prob-fill away" style="width:${aw}%"></div></div><div class="prob-pct">${aw}%</div></div>
-    <div class="data-section"><div class="data-section-title">🎯 波膽機率（最可能 8 個比分）</div>
-      <div class="xg-row"><div class="xg-box"><div class="xg-label">${m.home} 預期進球</div><div class="xg-val">${pm.hL.toFixed(2)}</div></div><div class="xg-box"><div class="xg-label">${m.away} 預期進球</div><div class="xg-val away">${pm.aL.toFixed(2)}</div></div></div>
+
+    <div class="data-section"><div class="data-section-title">🎬 動態雙波膽劇本</div>
+      <div class="script-box main"><div class="script-head"><span class="script-tag main">A 劇本 · 控制流</span><span class="script-sub">主推 · 高機率</span></div>
+        <div class="script-score">${pred.scenA.h} - ${pred.scenA.a}${scenAp?` <span class="script-prob">${(scenAp*100).toFixed(1)}%</span>`:''}</div>
+        <div class="script-desc">${pred.favName}領先後放慢節奏、控球養生，全場走低比分控制；大小分偏${pred.overUnder==='over'?'大':'小'}。</div></div>
+      <div class="script-box hedge"><div class="script-head"><span class="script-tag hedge">B 劇本 · 暴走流</span><span class="script-sub">次推 · 防冷門</span></div>
+        <div class="script-score">${pred.scenB.h} - ${pred.scenB.a}</div>
+        <div class="script-desc">若${pred.dogName}前段紅牌/送點/低級失誤早早掉球，防線被迫拉開對攻，比分失控放大。</div></div>
+    </div>
+
+    <div class="data-section"><div class="data-section-title">🎯 波膽機率分布（控制流模型）</div>
+      <div class="xg-row"><div class="xg-box"><div class="xg-label">${m.home} 預期進球</div><div class="xg-val">${c.hL.toFixed(2)}</div></div><div class="xg-box"><div class="xg-label">${m.away} 預期進球</div><div class="xg-val away">${c.aL.toFixed(2)}</div></div></div>
       <div class="score-list">${scoreRows}</div>
-      <div class="data-note">兩隊都進球 ${pct(pm.btts)}%　•　大於 2.5 球 ${pct(pm.over25)}%　•　機率由場均進失球經 Poisson 公式計算，非 AI 估計</div>
+      <div class="data-note">大小分推薦：${ouRec}　•　兩隊都進球 ${pct(c.btts)}%　•　機率經 Poisson 公式計算並套用大賽修正，非 AI 估計</div>
     </div>`;
 }
 
