@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="zh-TW">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>足球 AI 預測</title>
+<style>
+:root{--bg:#0f1117;--surface:#1a1d27;--surface2:#22263a;--border:#2e3248;--accent:#4f8ef7;--accent2:#7c5af0;--green:#3ecf8e;--red:#f05252;--yellow:#f5a623;--text:#e8eaf0;--text2:#8b90a7;--text3:#555a72;--radius:12px;--radius-sm:8px}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'Segoe UI','Noto Sans TC',sans-serif;font-size:14px;min-height:100vh}
+.top-bar{background:var(--surface);border-bottom:1px solid var(--border);padding:0 24px;height:56px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.logo{display:flex;align-items:center;gap:10px;font-weight:600;font-size:16px}
+.logo-icon{width:32px;height:32px;background:linear-gradient(135deg,var(--accent),var(--accent2));border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px}
+.live-pill{display:flex;align-items:center;gap:6px;background:rgba(62,207,142,0.1);border:1px solid rgba(62,207,142,0.3);color:var(--green);font-size:11px;font-weight:600;padding:4px 12px;border-radius:100px}
+.live-dot{width:6px;height:6px;border-radius:50%;background:var(--green);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+.main{max-width:1100px;margin:0 auto;padding:28px 24px;display:grid;grid-template-columns:320px 1fr;gap:24px}
+.sidebar{display:flex;flex-direction:column;gap:16px}
+.card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:20px}
+.card-title{font-size:11px;font-weight:700;color:var(--text2);text-transform:uppercase;letter-spacing:.1em;margin-bottom:14px}
+label{font-size:12px;color:var(--text2);display:block;margin-bottom:6px;margin-top:12px}
+label:first-of-type{margin-top:0}
+select,input{width:100%;background:var(--surface2);border:1px solid var(--border);border-radius:var(--radius-sm);color:var(--text);padding:9px 12px;font-size:13px;font-family:inherit;outline:none;transition:border-color .15s}
+select:focus,input:focus{border-color:var(--accent)}
+.btn-primary{width:100%;background:linear-gradient(135deg,var(--accent),var(--accent2));color:#fff;border:none;border-radius:var(--radius-sm);padding:11px;font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:opacity .15s,transform .1s;margin-top:16px}
+.btn-primary:hover{opacity:.9}.btn-primary:active{transform:scale(.98)}.btn-primary:disabled{opacity:.4;cursor:default;transform:none}
+.btn-analyze{width:100%;background:rgba(79,142,247,.1);border:1px solid rgba(79,142,247,.3);color:var(--accent);border-radius:var(--radius-sm);padding:11px;font-size:14px;font-weight:600;cursor:pointer;display:flex;align-items:center;justify-content:center;gap:8px;transition:background .15s;margin-top:4px}
+.btn-analyze:hover{background:rgba(79,142,247,.18)}.btn-analyze:disabled{opacity:.35;cursor:default}
+.tabs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;background:var(--surface2);padding:4px;border-radius:var(--radius-sm)}
+.tab{padding:7px;border-radius:6px;font-size:12px;font-weight:500;cursor:pointer;color:var(--text2);border:none;background:transparent;transition:all .15s;text-align:center}
+.tab.active{background:var(--surface);color:var(--text);border:1px solid var(--border)}
+.content{display:flex;flex-direction:column;gap:16px}
+.section-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.section-label{font-size:13px;font-weight:600;color:var(--text2)}
+.count-badge{font-size:11px;background:var(--surface2);border:1px solid var(--border);color:var(--text2);padding:3px 9px;border-radius:100px}
+.matches-list{display:flex;flex-direction:column;gap:8px;max-height:460px;overflow-y:auto;padding-right:2px}
+.matches-list::-webkit-scrollbar{width:4px}.matches-list::-webkit-scrollbar-track{background:transparent}.matches-list::-webkit-scrollbar-thumb{background:var(--border);border-radius:4px}
+.match-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:16px 18px;cursor:pointer;transition:border-color .15s,background .15s}
+.match-card:hover{border-color:rgba(79,142,247,.4);background:var(--surface2)}
+.match-card.selected{border-color:var(--accent);background:rgba(79,142,247,.05);box-shadow:0 0 0 1px var(--accent) inset}
+.match-meta{display:flex;align-items:center;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.meta-tag{font-size:11px;color:var(--text3)}
+.live-tag{font-size:10px;font-weight:700;background:rgba(240,82,82,.15);border:1px solid rgba(240,82,82,.3);color:#f07070;padding:2px 8px;border-radius:100px}
+.match-teams{display:grid;grid-template-columns:1fr auto 1fr;align-items:center;gap:12px}
+.team{display:flex;align-items:center;gap:10px}
+.team-away{flex-direction:row-reverse;text-align:right}
+.team-logo{width:28px;height:28px;object-fit:contain;border-radius:50%;background:var(--surface2);border:1px solid var(--border);padding:2px;flex-shrink:0}
+.team-placeholder{width:28px;height:28px;border-radius:50%;background:var(--surface2);border:1px solid var(--border);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;color:var(--text2);flex-shrink:0}
+.team-name{font-size:13px;font-weight:500;color:var(--text)}
+.score-box{text-align:center;min-width:66px}
+.score{font-size:20px;font-weight:700;letter-spacing:-0.5px}
+.vs{font-size:12px;color:var(--text3);font-weight:500}
+.empty-state{text-align:center;padding:60px 20px;color:var(--text3)}
+.empty-icon{font-size:38px;margin-bottom:12px}
+.loading-state{text-align:center;padding:60px 20px;color:var(--text2)}
+.spinner{width:34px;height:34px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin .8s linear infinite;margin:0 auto 14px}
+@keyframes spin{to{transform:rotate(360deg)}}
+.status-ok{background:rgba(62,207,142,.1);border:1px solid rgba(62,207,142,.25);color:var(--green);font-size:12px;padding:8px 12px;border-radius:var(--radius-sm);margin-top:10px}
+.status-warn{background:rgba(245,166,35,.1);border:1px solid rgba(245,166,35,.25);color:var(--yellow);font-size:12px;padding:8px 12px;border-radius:var(--radius-sm);margin-top:10px;line-height:1.5}
+.result-card{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:24px}
+.result-card.hidden{display:none}
+.result-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:20px;padding-bottom:16px;border-bottom:1px solid var(--border)}
+.result-title{font-size:15px;font-weight:600}
+.result-sub{font-size:12px;color:var(--text2);margin-top:2px}
+.winner-banner{background:linear-gradient(135deg,rgba(79,142,247,.08),rgba(124,90,240,.08));border:1px solid rgba(79,142,247,.2);border-radius:var(--radius);padding:16px 20px;margin-bottom:20px;display:flex;align-items:center;justify-content:space-between}
+.winner-label{font-size:11px;color:var(--text2);margin-bottom:4px}
+.winner-name{font-size:20px;font-weight:700;color:var(--accent)}
+.predicted-score{font-size:28px;font-weight:700;letter-spacing:-1px;color:var(--text)}
+.prob-title{font-size:12px;color:var(--text2);margin-bottom:12px;font-weight:600}
+.prob-row{display:grid;grid-template-columns:120px 1fr 44px;align-items:center;gap:12px;margin-bottom:10px}
+.prob-label{font-size:13px;color:var(--text);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.prob-track{background:var(--surface2);border-radius:100px;height:8px;overflow:hidden}
+.prob-fill{height:100%;border-radius:100px;transition:width .8s cubic-bezier(.4,0,.2,1)}
+.prob-fill.home{background:linear-gradient(90deg,var(--accent),var(--accent2))}
+.prob-fill.draw{background:var(--text3)}
+.prob-fill.away{background:linear-gradient(90deg,var(--red),#f07070)}
+.prob-pct{font-size:13px;font-weight:600;text-align:right}
+.factors-title{font-size:12px;color:var(--text2);margin-bottom:8px;font-weight:600;margin-top:16px}
+.factor-tags{display:flex;flex-wrap:wrap;gap:6px}
+.factor-tag{font-size:12px;padding:4px 11px;border-radius:100px;font-weight:500}
+.factor-tag.positive{background:rgba(62,207,142,.12);border:1px solid rgba(62,207,142,.3);color:#5de0a8}
+.factor-tag.negative{background:rgba(240,82,82,.12);border:1px solid rgba(240,82,82,.3);color:#f07070}
+.factor-tag.neutral{background:rgba(79,142,247,.1);border:1px solid rgba(79,142,247,.25);color:#7aabf7}
+.ai-summary{font-size:13px;color:var(--text2);line-height:1.7;padding-top:16px;border-top:1px solid var(--border);margin-top:16px}
+.info-box{background:rgba(79,142,247,.06);border:1px solid rgba(79,142,247,.15);border-radius:var(--radius);padding:14px 16px;font-size:12px;color:var(--text2);line-height:1.7}
+@media(max-width:768px){.main{grid-template-columns:1fr;padding:16px}.matches-list{max-height:340px}}
+</style>
+</head>
+<body>
+<header class="top-bar">
+  <div class="logo"><div class="logo-icon">⚽</div>足球 AI 預測</div>
+  <div class="live-pill"><div class="live-dot"></div>即時串接版</div>
+</header>
+<main class="main">
+  <aside class="sidebar">
+    <div class="card">
+      <div class="card-title">🔑 API 設定</div>
+      <label>API-Football Key</label>
+      <input type="password" id="api-key" placeholder="貼上你的 API Key" autocomplete="off">
+      <label>聯賽</label>
+      <select id="league-select">
+        <optgroup label="🏆 國際賽事">
+          <option value="1|2026">世界盃 2026</option>
+          <option value="4|2024">歐洲盃</option>
+          <option value="2|2024">歐冠 Champions League</option>
+        </optgroup>
+        <optgroup label="⚽ 五大聯賽">
+          <option value="39|2024">英超 Premier League</option>
+          <option value="140|2024">西甲 La Liga</option>
+          <option value="135|2024">義甲 Serie A</option>
+          <option value="78|2024">德甲 Bundesliga</option>
+          <option value="61|2024">法甲 Ligue 1</option>
+        </optgroup>
+      </select>
+      <label>日期範圍</label>
+      <select id="date-range">
+        <option value="3|7">前3天 ～ 後7天</option>
+        <option value="0|1">今天</option>
+        <option value="0|3">未來3天</option>
+        <option value="7|0">過去7天</option>
+        <option value="14|14">前後兩週</option>
+      </select>
+      <button class="btn-primary" id="fetch-btn" onclick="fetchMatches()">↻ 載入真實賽事</button>
+      <div id="status-bar"></div>
+    </div>
+    <div class="card">
+      <div class="card-title">🤖 AI 分析</div>
+      <label>分析模型</label>
+      <select id="model-select">
+        <option value="balanced">均衡分析（推薦）</option>
+        <option value="attack">進攻導向</option>
+        <option value="defense">防守導向</option>
+        <option value="form">近況優先</option>
+        <option value="historical">歷史對決</option>
+      </select>
+      <button class="btn-analyze" id="analyze-btn" onclick="analyzeSelected()" disabled>✦ AI 分析選取場次</button>
+    </div>
+    <div class="info-box">
+      <strong style="color:var(--text)">📌 使用說明</strong><br>
+      1. 確認 server.js 已用 node 執行<br>
+      2. 填入 API-Football Key<br>
+      3. 選聯賽 → 載入賽事<br>
+      4. 點場次 → AI 分析
+    </div>
+  </aside>
+  <div class="content">
+    <div class="card" style="padding:16px 20px">
+      <div class="tabs">
+        <button class="tab active" onclick="switchTab('upcoming')">⏰ 即將開賽</button>
+        <button class="tab" onclick="switchTab('live')">🔴 進行中</button>
+        <button class="tab" onclick="switchTab('finished')">✓ 已結束</button>
+      </div>
+    </div>
+    <div class="card">
+      <div class="section-header">
+        <span class="section-label" id="matches-label">請填入 API Key 並載入賽事</span>
+        <span class="count-badge" id="count-badge"></span>
+      </div>
+      <div class="matches-list" id="matches-list">
+        <div class="empty-state"><div class="empty-icon">⚽</div><div>填入 API Key 後點擊「載入真實賽事」</div></div>
+      </div>
+    </div>
+    <div class="result-card hidden" id="result-card">
+      <div class="result-header">
+        <div><div class="result-title" id="result-title">AI 分析結果</div><div class="result-sub" id="result-sub"></div></div>
+        <span style="font-size:22px">✦</span>
+      </div>
+      <div id="result-content"></div>
+    </div>
+  </div>
+</main>
+<script>
+const STATUS_MAP={NS:'upcoming',TBD:'upcoming',PST:'upcoming','1H':'live','2H':'live',HT:'live',ET:'live',P:'live',LIVE:'live',BT:'live',FT:'finished',AET:'finished',PEN:'finished',AWD:'finished',WO:'finished',SUSP:'finished',INT:'finished',ABD:'finished',CANC:'finished'};
+let currentTab='upcoming',allMatches=[],filteredMatches=[],selectedIdx=null;
+
+function switchTab(t){currentTab=t;selectedIdx=null;document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',['upcoming','live','finished'][i]===t));document.getElementById('analyze-btn').disabled=true;document.getElementById('result-card').classList.add('hidden');renderMatches()}
+
+async function fetchMatches(){
+  const apiKey=document.getElementById('api-key').value.trim();
+  if(!apiKey){showStatus('warn','請先填入 API Key');return}
+  const val=document.getElementById('league-select').value;
+  const[leagueId,season]=val.split('|');
+  const leagueName=document.getElementById('league-select').selectedOptions[0].text;
+  const[past,future]=document.getElementById('date-range').value.split('|').map(Number);
+  const btn=document.getElementById('fetch-btn');
+  btn.disabled=true;btn.textContent='載入中...';
+  showStatus('info','連線中...');
+  const today=new Date();
+  const from=new Date(today);from.setDate(from.getDate()-past);
+  const to=new Date(today);to.setDate(to.getDate()+future);
+  const fmt=d=>d.toISOString().split('T')[0];
+  try{
+    const res=await fetch(`/api/football?league=${leagueId}&season=${season}&from=${fmt(from)}&to=${fmt(to)}`,{headers:{'x-apisports-key':apiKey}});
+    const data=await res.json();
+    if(data.errors&&Object.keys(data.errors).length>0)throw new Error(Object.values(data.errors).join(', '));
+    allMatches=(data.response||[]).map(f=>({id:f.fixture.id,status:STATUS_MAP[f.fixture.status.short]||'finished',statusShort:f.fixture.status.short,elapsed:f.fixture.status.elapsed,date:f.fixture.date,league:leagueName,home:f.teams.home.name,homeLogo:f.teams.home.logo,away:f.teams.away.name,awayLogo:f.teams.away.logo,homeGoals:f.goals.home,awayGoals:f.goals.away,venue:f.fixture.venue?.name||''}));
+    showStatus('ok',`✓ 取得 ${allMatches.length} 場 ${leagueName} 真實賽事`);
+    renderMatches();
+  }catch(e){showStatus('warn','API 錯誤：'+e.message)}
+  btn.disabled=false;btn.textContent='↻ 載入真實賽事';
+}
+
+function renderMatches(){
+  filteredMatches=allMatches.filter(m=>m.status===currentTab);
+  const label=currentTab==='upcoming'?'即將開賽':currentTab==='live'?'進行中':'已結束';
+  document.getElementById('matches-label').textContent=label;
+  document.getElementById('count-badge').textContent=filteredMatches.length?`${filteredMatches.length} 場`:'';
+  if(!filteredMatches.length){document.getElementById('matches-list').innerHTML=`<div class="empty-state"><div class="empty-icon">📅</div><div>沒有「${label}」場次</div></div>`;return}
+  document.getElementById('matches-list').innerHTML=filteredMatches.map((m,i)=>{
+    const dt=new Date(m.date);
+    const ts=dt.toLocaleString('zh-TW',{month:'numeric',day:'numeric',weekday:'short',hour:'2-digit',minute:'2-digit'});
+    const sc=(m.homeGoals!==null&&m.awayGoals!==null)?`${m.homeGoals} - ${m.awayGoals}`:null;
+    const lh=m.homeLogo?`<img class="team-logo" src="${m.homeLogo}" alt="" onerror="this.outerHTML='<div class=team-placeholder>${m.home.substring(0,2).toUpperCase()}</div>'">`:`<div class="team-placeholder">${m.home.substring(0,2).toUpperCase()}</div>`;
+    const la=m.awayLogo?`<img class="team-logo" src="${m.awayLogo}" alt="" onerror="this.outerHTML='<div class=team-placeholder>${m.away.substring(0,2).toUpperCase()}</div>'">`:`<div class="team-placeholder">${m.away.substring(0,2).toUpperCase()}</div>`;
+    return`<div class="match-card" id="mc${i}" onclick="selectMatch(${i})"><div class="match-meta"><span class="meta-tag">🕐 ${ts}</span>${m.venue?`<span class="meta-tag">📍 ${m.venue}</span>`:''} ${m.status==='live'?`<span class="live-tag">● LIVE${m.elapsed?" "+m.elapsed+"'":""}</span>`:''}</div><div class="match-teams"><div class="team">${lh}<span class="team-name">${m.home}</span></div><div class="score-box">${sc?`<div class="score">${sc}</div>`:`<div class="vs">VS</div>`}</div><div class="team team-away"><span class="team-name">${m.away}</span>${la}</div></div></div>`;
+  }).join('');
+}
+
+function selectMatch(i){selectedIdx=i;document.querySelectorAll('.match-card').forEach((c,j)=>c.classList.toggle('selected',j===i));document.getElementById('analyze-btn').disabled=false;document.getElementById('result-card').classList.add('hidden')}
+
+async function analyzeSelected(){
+  if(selectedIdx===null)return;
+  const m=filteredMatches[selectedIdx];
+  const model=document.getElementById('model-select').value;
+  const btn=document.getElementById('analyze-btn');
+  btn.disabled=true;
+  const card=document.getElementById('result-card');
+  card.classList.remove('hidden');
+  document.getElementById('result-title').textContent=`${m.home} vs ${m.away}`;
+  document.getElementById('result-sub').textContent=`${m.league} · AI 預測分析`;
+  document.getElementById('result-content').innerHTML='<div class="loading-state"><div class="spinner"></div><div>AI 分析中...</div></div>';
+  card.scrollIntoView({behavior:'smooth',block:'nearest'});
+  const modelDesc={balanced:'綜合近期表現、主客場勝率、歷史對決、傷病情況',attack:'著重進攻火力、射門數、xG期望進球',defense:'側重防守穩定性、失球率、清零場次',form:'優先近5場戰績與球員狀態',historical:'重點參考歷史對決與大賽心理優勢'}[model];
+  const scoreInfo=(m.homeGoals!==null&&m.awayGoals!==null)?`目前比分：${m.homeGoals}-${m.awayGoals}（${m.status==='live'?'進行中':'已結束'}）`:'';
+  const prompt=`你是專業足球數據分析師。聯賽：${m.league}，主隊：${m.home}，客隊：${m.away}，${scoreInfo}場地：${m.venue}，分析方式：${modelDesc}。根據兩隊實力、歷史對決、傷停、主客場優勢預測：1.勝者 2.比分 3.三方勝率（加總100%整數）4.3-5個關鍵因素標籤 5.60字內總結。只回傳純JSON：{"winner":"隊名或平局","predictedScore":"X-X","homeWinPct":數字,"drawPct":數字,"awayWinPct":數字,"factors":[{"label":"標籤","type":"positive|negative|neutral"}],"summary":"總結"}`;
+  try{
+    const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1000,messages:[{role:'user',content:prompt}]})});
+    const data=await res.json();
+    const text=data.content.map(b=>b.text||'').join('');
+    const r=JSON.parse(text.replace(/```json|```/g,'').trim());
+    document.getElementById('result-content').innerHTML=`
+      <div class="winner-banner"><div><div class="winner-label">預測勝者</div><div class="winner-name">${r.winner}</div></div><div style="text-align:right"><div class="winner-label">預測比分</div><div class="predicted-score">${r.predictedScore}</div></div></div>
+      <div class="prob-title">勝負機率</div>
+      <div class="prob-row"><div class="prob-label" title="${m.home}">${m.home}</div><div class="prob-track"><div class="prob-fill home" style="width:${r.homeWinPct}%"></div></div><div class="prob-pct">${r.homeWinPct}%</div></div>
+      <div class="prob-row"><div class="prob-label">平局</div><div class="prob-track"><div class="prob-fill draw" style="width:${r.drawPct}%"></div></div><div class="prob-pct">${r.drawPct}%</div></div>
+      <div class="prob-row"><div class="prob-label" title="${m.away}">${m.away}</div><div class="prob-track"><div class="prob-fill away" style="width:${r.awayWinPct}%"></div></div><div class="prob-pct">${r.awayWinPct}%</div></div>
+      <div class="factors-title">關鍵因素</div>
+      <div class="factor-tags">${(r.factors||[]).map(f=>`<span class="factor-tag ${f.type}">${f.label}</span>`).join('')}</div>
+      <div class="ai-summary">${r.summary}</div>`;
+  }catch(e){document.getElementById('result-content').innerHTML='<div style="color:var(--red);padding:20px">分析失敗，請稍後再試。</div>'}
+  btn.disabled=false;
+}
+
+function showStatus(type,msg){
+  const el=document.getElementById('status-bar');
+  if(type==='ok')el.innerHTML=`<div class="status-ok">${msg}</div>`;
+  else if(type==='warn')el.innerHTML=`<div class="status-warn">⚠️ ${msg}</div>`;
+  else el.innerHTML=`<div style="margin-top:10px;color:var(--text2);font-size:12px;text-align:center">${msg}</div>`;
+}
+</script>
+</body>
+</html>
