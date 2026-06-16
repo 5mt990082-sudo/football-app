@@ -6,8 +6,20 @@ const url = require('url');
 
 const PORT = 3000;
 
-// ── 從環境變數讀取 Anthropic API 金鑰 ──
-const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+// ── 讀取 Anthropic API 金鑰 ──
+// 優先用環境變數 ANTHROPIC_API_KEY；若沒有，改讀同資料夾的 anthropic-key.txt
+function loadAnthropicKey() {
+  if (process.env.ANTHROPIC_API_KEY) return process.env.ANTHROPIC_API_KEY.trim();
+  try {
+    const keyPath = path.join(__dirname, 'anthropic-key.txt');
+    if (fs.existsSync(keyPath)) {
+      const k = fs.readFileSync(keyPath, 'utf8').trim();
+      if (k) return k;
+    }
+  } catch (e) { /* 忽略 */ }
+  return '';
+}
+const ANTHROPIC_API_KEY = loadAnthropicKey();
 
 // ── CORS headers ──
 function setCORS(res) {
@@ -105,6 +117,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`\n✅ 足球 AI 預測伺服器已啟動！`);
   console.log(`🌐 請用瀏覽器開啟：http://localhost:${PORT}`);
-  console.log(`🔑 Anthropic 金鑰：${ANTHROPIC_API_KEY ? '已設定 ✓' : '未設定 ✗（AI 分析會失敗）'}`);
+  console.log(`🔑 Anthropic 金鑰：${ANTHROPIC_API_KEY ? '已設定 ✓' : '未設定 ✗（請設環境變數，或在同資料夾建立 anthropic-key.txt）'}`);
   console.log(`\n按 Ctrl+C 停止伺服器\n`);
 });
