@@ -143,6 +143,34 @@ select:focus,input:focus{border-color:var(--accent)}
 .script-score .sc-num{font-size:24px;font-weight:700;letter-spacing:2px;line-height:1.1}
 .script-prob{font-size:13px;font-weight:600;color:var(--text2)}
 .script-desc{font-size:12px;color:var(--text2);line-height:1.6}
+/* 智能配注儀表板 */
+.stake-panel{background:linear-gradient(135deg,rgba(124,90,240,.10),rgba(236,72,153,.06));border:1px solid rgba(124,90,240,.28);border-radius:var(--radius);padding:16px;backdrop-filter:blur(8px);box-shadow:0 0 0 1px rgba(124,90,240,.06),inset 0 0 24px rgba(124,90,240,.05)}
+.stake-budget-row{display:flex;align-items:center;gap:12px;margin-bottom:12px}
+.stake-budget-label{font-size:13px;font-weight:600;color:var(--text2);flex-shrink:0}
+.stake-input-wrap{position:relative;flex:1;display:flex;align-items:center}
+.stake-dollar{position:absolute;left:12px;font-size:15px;font-weight:700;color:#c4a8ff;pointer-events:none}
+.stake-input-wrap input{width:100%;padding:10px 12px 10px 26px;background:rgba(10,12,24,.5);border:1px solid rgba(124,90,240,.35);border-radius:var(--radius-sm);color:var(--text);font-size:16px;font-weight:700;letter-spacing:.5px}
+.stake-input-wrap input:focus{outline:none;border-color:#a78bfa;box-shadow:0 0 0 3px rgba(124,90,240,.18)}
+.stake-toggles{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:14px}
+.stake-toggle{display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px 6px;border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(255,255,255,.02);color:var(--text2);font-size:13px;font-weight:600;cursor:pointer;transition:all .15s}
+.stake-toggle-sub{font-size:10px;opacity:.7;font-weight:500;letter-spacing:1px}
+.stake-toggle:hover{border-color:rgba(124,90,240,.4)}
+.stake-toggle.active{background:linear-gradient(135deg,rgba(124,90,240,.25),rgba(236,72,153,.18));border-color:#a78bfa;color:#fff;box-shadow:0 0 14px rgba(124,90,240,.3)}
+.stake-alloc{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px}
+.stake-alloc-box{border-radius:var(--radius-sm);padding:11px 12px;border:1px solid var(--border)}
+.stake-alloc-box.market{background:rgba(79,142,247,.08);border-color:rgba(79,142,247,.28)}
+.stake-alloc-box.attack{background:rgba(236,72,153,.07);border-color:rgba(236,72,153,.28)}
+.stake-alloc-head{display:flex;align-items:baseline;justify-content:space-between;gap:6px;flex-wrap:wrap}
+.stake-alloc-name{font-size:12px;font-weight:600;color:var(--text2)}
+.stake-alloc-amt{font-size:18px;font-weight:800;color:#fff;letter-spacing:.3px}
+.stake-alloc-detail{font-size:10.5px;color:var(--text3);margin-top:5px;line-height:1.5}
+.stake-note{font-size:11px;color:var(--text3);line-height:1.6}
+.stake-note #stake-ratio{color:#c4a8ff;font-weight:700}
+.stake-tag{font-size:10.5px;font-weight:700;color:#34d399;background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.3);padding:2px 8px;border-radius:100px;white-space:nowrap;flex-shrink:0}
+.score-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
+.score-row .score-label{width:42px;flex-shrink:0}
+.score-row .score-track{flex:1 1 90px}
+.score-row .score-pct{width:44px;flex-shrink:0}
 @media(max-width:768px){.main{grid-template-columns:1fr;padding:16px}.matches-list{max-height:340px}.player-cols{grid-template-columns:1fr}}
 @media(max-width:480px){
   .main{padding:12px;gap:12px}
@@ -493,11 +521,14 @@ async function analyzeSelected(){
     const mWinner=(c.homeWin>=c.draw&&c.homeWin>=c.awayWin)?m.home:(c.awayWin>=c.draw?m.away:'平局');
     const predBlock=renderPrediction(m,pred,mWinner);
     const dataHTML=renderDataSections(m,hs,as,hp,ap,h2hFin);
+    // 提供配注系統所需資料（大小分機率 + 前三波膽）
+    stakeData={overProb:c.over25,recommend:pred.overUnder,top3:c.top.slice(0,3).map(s=>({score:`${s.h}-${s.a}`,prob:s.p}))};
 
     // 先畫「模型預測 + 真實數據」，AI 觀點顯示載入中（即使 AI 掛掉，預測也已完成）
     rc.innerHTML=predBlock
-      +'<div class="data-section"><div class="data-section-title">🤖 AI 觀點</div><div class="loading-state" style="padding:20px"><div class="spinner"></div><div>Claude 上網查賽前情報並解讀中...</div><div style="font-size:11px;color:var(--text3);margin-top:6px">(含網路搜尋，約需 10～30 秒)</div></div></div>'
+      +'<div id="ai-section"><div class="data-section"><div class="data-section-title">🤖 AI 觀點</div><div class="loading-state" style="padding:20px"><div class="spinner"></div><div>Claude 上網查賽前情報並解讀中...</div><div style="font-size:11px;color:var(--text3);margin-top:6px">(含網路搜尋，約需 10～30 秒)</div></div></div></div>'
       +dataHTML;
+    updateStake();
 
     // 組裝 prompt：把雙劇本模型結果與真實數字交給 AI 解讀
     const modelHint={balanced:'均衡看待攻守與近況',attack:'特別側重進攻火力',defense:'特別側重防守穩定',form:'特別側重近5場狀態',historical:'特別側重歷史交手'}[model];
@@ -543,10 +574,10 @@ async function analyzeSelected(){
         +`<div class="factor-tags">${(r.factors||[]).map(f=>`<span class="factor-tag ${f.type}">${f.label}</span>`).join('')}</div>`
         +intelHTML
         +`<div class="ai-summary" style="border-top:none;padding-top:12px">${r.summary||''}</div></div>`;
-      rc.innerHTML=predBlock+aiHTML+dataHTML;
+      const aiSec=document.getElementById('ai-section'); if(aiSec)aiSec.innerHTML=aiHTML;
     }catch(aiErr){
       const hint=/ANTHROPIC_API_KEY|api[_-]?key|authentication|x-api-key|credit|balance/i.test(aiErr.message)?'<br>請確認 Anthropic 金鑰已設定且帳戶有額度。':'';
-      rc.innerHTML=predBlock+'<div class="status-warn" style="margin:0">⚠️ AI 觀點載入失敗：'+aiErr.message+hint+'<br><span style="opacity:.8">模型預測與真實數據不受影響。</span></div>'+dataHTML;
+      const aiSec=document.getElementById('ai-section'); if(aiSec)aiSec.innerHTML='<div class="status-warn" style="margin:0">⚠️ AI 觀點載入失敗：'+aiErr.message+hint+'<br><span style="opacity:.8">模型預測與真實數據不受影響。</span></div>';
     }
   }catch(e){
     rc.innerHTML='<div style="color:var(--red);padding:20px">資料抓取失敗：'+e.message+'<br><span style="color:var(--text3);font-size:12px">（大賽初期部分球隊歷史資料可能尚未齊全）</span></div>';
@@ -560,7 +591,7 @@ function renderPrediction(m,pred,mWinner){
   const pct=v=>Math.round(v*100);
   const hw=pct(c.homeWin),dw=pct(c.draw),aw=pct(c.awayWin);
   const maxP=c.top[0]?c.top[0].p:1;
-  const scoreRows=c.top.map((s,i)=>`<div class="score-row"><div class="score-label ${i===0?'fav':''}">${s.h}-${s.a}</div><div class="score-track"><div class="score-fill" style="width:${Math.round(s.p/maxP*100)}%"></div></div><div class="score-pct">${(s.p*100).toFixed(1)}%</div></div>`).join('');
+  const scoreRows=c.top.map((s,i)=>`<div class="score-row"><div class="score-label ${i===0?'fav':''}">${s.h}-${s.a}</div><div class="score-track"><div class="score-fill" style="width:${Math.round(s.p/maxP*100)}%"></div></div><div class="score-pct">${(s.p*100).toFixed(1)}%</div>${i<3?`<span class="stake-tag" id="stake-tag-${i}">建議下注 $0</span>`:''}</div>`).join('');
   const badges=[pred.useOpener?'<span class="adj-badge">大賽首戰停利</span>':'',pred.useDilution?'<span class="adj-badge">含金量壓制</span>':''].join('')||'<span class="adj-badge off">未套用大賽修正</span>';
   const ouOver=pct(c.over25);
   const ouRec=pred.overUnder==='over'?`大分（大於 2.5 球，${ouOver}%）`:`小分（小於 2.5 球，${100-ouOver}%）`;
@@ -582,11 +613,94 @@ function renderPrediction(m,pred,mWinner){
         <div class="script-desc">若${tw(pred.dogName)}前段紅牌/送點/低級失誤早早掉球，防線被迫拉開對攻，比分失控放大。</div></div>
     </div>
 
+    <div class="data-section"><div class="data-section-title">💰 智能一鍵配注</div>
+      <div class="stake-panel">
+        <div class="stake-budget-row">
+          <label class="stake-budget-label">本金</label>
+          <div class="stake-input-wrap"><span class="stake-dollar">$</span><input id="stake-budget" type="number" inputmode="numeric" min="0" value="5000" oninput="updateStake()"></div>
+        </div>
+        <div class="stake-toggles">
+          <button id="stake-cons" class="stake-toggle active" onclick="setStakeRisk('conservative')">🛡️ 穩健保本<span class="stake-toggle-sub">70:30</span></button>
+          <button id="stake-agg" class="stake-toggle" onclick="setStakeRisk('aggressive')">⚔️ 激進博高賠<span class="stake-toggle-sub">50:50</span></button>
+        </div>
+        <div class="stake-alloc">
+          <div class="stake-alloc-box market">
+            <div class="stake-alloc-head"><span class="stake-alloc-name">🛡️ 大盤保險</span><span class="stake-alloc-amt" id="stake-market-total">$0</span></div>
+            <div class="stake-alloc-detail" id="stake-market-detail"></div>
+          </div>
+          <div class="stake-alloc-box attack">
+            <div class="stake-alloc-head"><span class="stake-alloc-name">⚔️ 波膽進攻</span><span class="stake-alloc-amt" id="stake-score-total">$0</span></div>
+            <div class="stake-alloc-detail" id="stake-score-detail"></div>
+          </div>
+        </div>
+        <div class="stake-note">資金比例 <span id="stake-ratio">70:30</span>　•　配注金額隨本金與策略即時連動，下方波膽前三名會標出建議下注金額</div>
+      </div>
+    </div>
+
     <div class="data-section"><div class="data-section-title">🎯 波膽機率分布（控制流模型）</div>
       <div class="xg-row"><div class="xg-box"><div class="xg-label">${tw(m.home)} 預期進球</div><div class="xg-val">${c.hL.toFixed(2)}</div></div><div class="xg-box"><div class="xg-label">${tw(m.away)} 預期進球</div><div class="xg-val away">${c.aL.toFixed(2)}</div></div></div>
       <div class="score-list">${scoreRows}</div>
       <div class="data-note">大小分推薦：${ouRec}　•　兩隊都進球 ${pct(c.btts)}%　•　機率經卜瓦松公式計算並套用大賽修正，非 AI 估計</div>
     </div>`;
+}
+
+// ── 智能配注：狀態與演算法 ──
+let stakeData=null, stakeRisk='conservative';
+
+function calculateSmartStake(totalBudget, riskLevel, poissonData){
+  const budget=Math.max(0,Math.round(Number(totalBudget)||0));
+  const isCons=riskLevel==='conservative';
+  const marketRatio=isCons?0.70:0.50, scoreRatio=1-marketRatio;
+  const over=Math.min(0.99,Math.max(0.01,Number(poissonData.overProb)||0.5));
+  const recIsOver=poissonData.recommend==='over';
+  const mainConf=recIsOver?over:(1-over);
+  const mainW=mainConf, hedgeW=1-mainConf;
+  const mainSide=recIsOver?'大分':'小分', hedgeSide=recIsOver?'小分':'大分';
+  const top3=(poissonData.top3||[]).slice(0,3);
+  const top3Sum=top3.reduce((s,x)=>s+(Number(x.prob)||0),0)||1;
+  const marketPool=budget*marketRatio, scorePool=budget*scoreRatio;
+  const items=[
+    {key:'market_main',ideal:marketPool*mainW},
+    {key:'market_hedge',ideal:marketPool*hedgeW},
+    ...top3.map((s,i)=>({key:'score_'+i,ideal:scorePool*((Number(s.prob)||0)/top3Sum)}))
+  ];
+  // 最大餘數法：確保整數加總 === 本金
+  const fl=items.map(it=>({...it,base:Math.floor(it.ideal),rem:it.ideal-Math.floor(it.ideal)}));
+  let rem=budget-fl.reduce((s,it)=>s+it.base,0);
+  const ord=[...fl].sort((a,b)=>b.rem-a.rem);
+  for(let i=0;i<rem;i++)ord[i%ord.length].base+=1;
+  const fm={}; fl.forEach(it=>fm[it.key]=it.base);
+  const breakdown=top3.map((s,i)=>({score:s.score,prob:s.prob,stake:fm['score_'+i]||0}));
+  return{
+    totalBudget:budget,
+    ratio:{market:Math.round(marketRatio*100),score:Math.round(scoreRatio*100)},
+    market:{total:(fm.market_main||0)+(fm.market_hedge||0),
+      main:{side:mainSide,stake:fm.market_main||0,weight:Math.round(mainW*100)},
+      hedge:{side:hedgeSide,stake:fm.market_hedge||0,weight:Math.round(hedgeW*100)}},
+    scores:{total:breakdown.reduce((s,x)=>s+x.stake,0),breakdown}
+  };
+}
+
+function setStakeRisk(r){
+  stakeRisk=r;
+  const c=document.getElementById('stake-cons'), a=document.getElementById('stake-agg');
+  if(c&&a){c.classList.toggle('active',r==='conservative');a.classList.toggle('active',r==='aggressive');}
+  updateStake();
+}
+
+function updateStake(){
+  if(!stakeData)return;
+  const inp=document.getElementById('stake-budget'); if(!inp)return;
+  let b=parseInt(inp.value,10); if(isNaN(b)||b<0)b=0;
+  const r=calculateSmartStake(b,stakeRisk,stakeData);
+  const $=n=>'$'+n.toLocaleString();
+  const set=(id,t)=>{const el=document.getElementById(id);if(el)el.textContent=t;};
+  set('stake-market-total',$(r.market.total));
+  set('stake-market-detail',`主推${r.market.main.side} ${$(r.market.main.stake)}（${r.market.main.weight}%）· 對沖${r.market.hedge.side} ${$(r.market.hedge.stake)}`);
+  set('stake-score-total',$(r.scores.total));
+  set('stake-score-detail',r.scores.breakdown.map(x=>`${x.score} ${$(x.stake)}`).join('　·　'));
+  set('stake-ratio',`${r.ratio.market}:${r.ratio.score}`);
+  r.scores.breakdown.forEach((x,i)=>set('stake-tag-'+i,'建議下注 '+$(x.stake)));
 }
 
 // ── 畫出真實數據區塊：攻守對比 + 歷史比分 + 關鍵球員 ──
