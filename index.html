@@ -348,9 +348,9 @@ async function analyzeSelected(){
     const ap=computePlayerPatterns(awayDetail,m.awayId);
     const h2hFin=h2h.filter(f=>FINISHED.includes(f.fixture.status.short)).slice(0,6);
 
-    // 先把「真實數據」區塊畫出來（不靠 AI）
-    rc.innerHTML=renderDataSections(m,hs,as,hp,ap,h2hFin)
-      +'<div class="data-section"><div class="data-section-title">⚡ AI 綜合預測</div><div class="loading-state" style="padding:30px"><div class="spinner"></div><div>Claude 分析中...</div></div></div>';
+    // 先把「真實數據」區塊畫出來（不靠 AI，永遠保留）
+    const dataHTML=renderDataSections(m,hs,as,hp,ap,h2hFin);
+    rc.innerHTML='<div class="data-section" style="margin-top:0;border-top:none;padding-top:0"><div class="data-section-title">⚡ AI 綜合預測</div><div class="loading-state" style="padding:24px"><div class="spinner"></div><div>Claude 分析中...</div></div></div>'+dataHTML;
 
     // 組裝帶真實數字的 prompt
     const modelHint={balanced:'均衡看待攻守與近況',attack:'特別側重進攻火力',defense:'特別側重防守穩定',form:'特別側重近5場狀態',historical:'特別側重歷史交手'}[model];
@@ -365,23 +365,32 @@ async function analyzeSelected(){
 【${m.away}關鍵先發】${fmtP(ap.players)}
 分析取向：${modelHint}。請預測：1.勝者 2.比分 3.三方勝率(整數加總100) 4.3-5個關鍵因素標籤(根據上述數據) 5.70字內總結需引用具體數字。只回傳純JSON：{"winner":"隊名或平局","predictedScore":"X-X","homeWinPct":數字,"drawPct":數字,"awayWinPct":數字,"factors":[{"label":"標籤","type":"positive|negative|neutral"}],"summary":"總結"}`;
 
-    const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1200,messages:[{role:'user',content:prompt}]})});
-    const data=await res.json();
-    const text=data.content.map(b=>b.text||'').join('');
-    const r=JSON.parse(text.replace(/```json|```/g,'').trim());
-    // 把 AI 結果填回最上方
-    rc.innerHTML=`
-      <div class="winner-banner"><div><div class="winner-label">預測勝者</div><div class="winner-name">${r.winner}</div></div><div style="text-align:right"><div class="winner-label">預測比分</div><div class="predicted-score">${r.predictedScore}</div></div></div>
-      <div class="prob-title">勝負機率</div>
-      <div class="prob-row"><div class="prob-label" title="${m.home}">${m.home}</div><div class="prob-track"><div class="prob-fill home" style="width:${r.homeWinPct}%"></div></div><div class="prob-pct">${r.homeWinPct}%</div></div>
-      <div class="prob-row"><div class="prob-label">平局</div><div class="prob-track"><div class="prob-fill draw" style="width:${r.drawPct}%"></div></div><div class="prob-pct">${r.drawPct}%</div></div>
-      <div class="prob-row"><div class="prob-label" title="${m.away}">${m.away}</div><div class="prob-track"><div class="prob-fill away" style="width:${r.awayWinPct}%"></div></div><div class="prob-pct">${r.awayWinPct}%</div></div>
-      <div class="factors-title">關鍵因素</div>
-      <div class="factor-tags">${(r.factors||[]).map(f=>`<span class="factor-tag ${f.type}">${f.label}</span>`).join('')}</div>
-      <div class="ai-summary">${r.summary}</div>`
-      +renderDataSections(m,hs,as,hp,ap,h2hFin);
+    // ── Claude 呼叫：獨立 try/catch，失敗也保留上面的真實數據 ──
+    try{
+      const res=await fetch('/api/claude',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({model:'claude-sonnet-4-6',max_tokens:1200,messages:[{role:'user',content:prompt}]})});
+      const data=await res.json();
+      if(!data.content||!Array.isArray(data.content)){
+        const msg=(data.error&&(data.error.message||data.error))||data.message||JSON.stringify(data).slice(0,300);
+        throw new Error(typeof msg==='string'?msg:JSON.stringify(msg));
+      }
+      const text=data.content.map(b=>b.text||'').join('');
+      const r=JSON.parse(text.replace(/```json|```/g,'').trim());
+      rc.innerHTML=`
+        <div class="winner-banner"><div><div class="winner-label">預測勝者</div><div class="winner-name">${r.winner}</div></div><div style="text-align:right"><div class="winner-label">預測比分</div><div class="predicted-score">${r.predictedScore}</div></div></div>
+        <div class="prob-title">勝負機率</div>
+        <div class="prob-row"><div class="prob-label" title="${m.home}">${m.home}</div><div class="prob-track"><div class="prob-fill home" style="width:${r.homeWinPct}%"></div></div><div class="prob-pct">${r.homeWinPct}%</div></div>
+        <div class="prob-row"><div class="prob-label">平局</div><div class="prob-track"><div class="prob-fill draw" style="width:${r.drawPct}%"></div></div><div class="prob-pct">${r.drawPct}%</div></div>
+        <div class="prob-row"><div class="prob-label" title="${m.away}">${m.away}</div><div class="prob-track"><div class="prob-fill away" style="width:${r.awayWinPct}%"></div></div><div class="prob-pct">${r.awayWinPct}%</div></div>
+        <div class="factors-title">關鍵因素</div>
+        <div class="factor-tags">${(r.factors||[]).map(f=>`<span class="factor-tag ${f.type}">${f.label}</span>`).join('')}</div>
+        <div class="ai-summary">${r.summary}</div>`+dataHTML;
+    }catch(aiErr){
+      // AI 失敗：真實數據照常顯示，只標示 AI 那段出錯
+      const hint=/ANTHROPIC_API_KEY|api[_-]?key|authentication|x-api-key/i.test(aiErr.message)?'<br>請確認執行 server.js 前已設定 ANTHROPIC_API_KEY 環境變數。':'';
+      rc.innerHTML='<div class="status-warn" style="margin:0 0 4px">⚠️ AI 預測失敗：'+aiErr.message+hint+'<br><span style="opacity:.8">下方真實數據分析不受影響。</span></div>'+dataHTML;
+    }
   }catch(e){
-    rc.innerHTML='<div style="color:var(--red);padding:20px">分析失敗：'+e.message+'<br><span style="color:var(--text3);font-size:12px">（大賽初期部分球隊歷史資料可能尚未齊全）</span></div>';
+    rc.innerHTML='<div style="color:var(--red);padding:20px">資料抓取失敗：'+e.message+'<br><span style="color:var(--text3);font-size:12px">（大賽初期部分球隊歷史資料可能尚未齊全）</span></div>';
   }
   btn.disabled=false;
 }
