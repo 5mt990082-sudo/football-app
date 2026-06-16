@@ -134,15 +134,39 @@ select:focus,input:focus{border-color:var(--accent)}
 .script-box{border-radius:var(--radius-sm);padding:12px 14px;margin-bottom:10px;border:1px solid var(--border)}
 .script-box.main{background:rgba(79,142,247,.07);border-color:rgba(79,142,247,.3)}
 .script-box.hedge{background:rgba(245,166,35,.06);border-color:rgba(245,166,35,.25)}
-.script-head{display:flex;align-items:center;gap:8px;margin-bottom:6px}
-.script-tag{font-size:11px;font-weight:700;padding:2px 9px;border-radius:100px}
+.script-head{display:flex;align-items:center;gap:8px;margin-bottom:8px;flex-wrap:wrap}
+.script-tag{font-size:11px;font-weight:700;padding:2px 9px;border-radius:100px;white-space:nowrap;flex-shrink:0}
 .script-tag.main{background:rgba(79,142,247,.18);color:#7aabf7}
 .script-tag.hedge{background:rgba(245,166,35,.18);color:var(--yellow)}
-.script-sub{font-size:10px;color:var(--text3)}
-.script-score{font-size:22px;font-weight:700;letter-spacing:1px;margin-bottom:4px}
-.script-prob{font-size:13px;font-weight:600;color:var(--text2);letter-spacing:0}
+.script-sub{font-size:10px;color:var(--text3);white-space:nowrap}
+.script-score{display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;margin-bottom:5px}
+.script-score .sc-num{font-size:24px;font-weight:700;letter-spacing:2px;line-height:1.1}
+.script-prob{font-size:13px;font-weight:600;color:var(--text2)}
 .script-desc{font-size:12px;color:var(--text2);line-height:1.6}
 @media(max-width:768px){.main{grid-template-columns:1fr;padding:16px}.matches-list{max-height:340px}.player-cols{grid-template-columns:1fr}}
+@media(max-width:480px){
+  .main{padding:12px;gap:12px}
+  .card,.result-card{padding:16px}
+  .winner-banner{padding:14px 16px;margin-bottom:16px}
+  .winner-name{font-size:17px}
+  .predicted-score{font-size:22px}
+  .prob-row{grid-template-columns:92px 1fr 38px;gap:8px;margin-bottom:9px}
+  .prob-label{font-size:12px}
+  .prob-pct{font-size:12px}
+  .score-row{grid-template-columns:46px 1fr 42px;gap:8px}
+  .score-label{font-size:13px}
+  .score-pct{font-size:11px}
+  .xg-row{gap:16px}
+  .xg-val{font-size:18px}
+  .script-score .sc-num{font-size:21px}
+  .data-section-title{font-size:11px}
+  .h2h-item{grid-template-columns:1fr auto 1fr;gap:6px;padding:7px 9px;font-size:11px}
+  .h2h-score{font-size:13px;min-width:46px}
+  .factor-tag{font-size:11px}
+  .adj-toggle{font-size:11px}
+  .stat-name{min-width:62px;font-size:10px}
+  .stat-val{font-size:13px;min-width:30px}
+}
 </style>
 </head>
 <body>
@@ -154,7 +178,7 @@ select:focus,input:focus{border-color:var(--accent)}
   <aside class="sidebar">
     <div class="card">
       <div class="card-title">🔑 API 設定</div>
-      <label>API-Football Key</label>
+      <label>API-Football 金鑰</label>
       <input type="password" id="api-key" placeholder="貼上你的 API Key" autocomplete="off">
       <label>聯賽</label>
       <select id="league-select">
@@ -165,11 +189,11 @@ select:focus,input:focus{border-color:var(--accent)}
           <option value="2|2024">歐冠 2024/25</option>
         </optgroup>
         <optgroup label="⚽ 五大聯賽 2024/25">
-          <option value="39|2024">英超 Premier League</option>
-          <option value="140|2024">西甲 La Liga</option>
-          <option value="135|2024">義甲 Serie A</option>
-          <option value="78|2024">德甲 Bundesliga</option>
-          <option value="61|2024">法甲 Ligue 1</option>
+          <option value="39|2024">英格蘭超級聯賽</option>
+          <option value="140|2024">西班牙甲級聯賽</option>
+          <option value="135|2024">義大利甲級聯賽</option>
+          <option value="78|2024">德國甲級聯賽</option>
+          <option value="61|2024">法國甲級聯賽</option>
         </optgroup>
         <optgroup label="⚽ 五大聯賽 2023/24（歷史）">
           <option value="39|2023">英超 2023/24</option>
@@ -209,7 +233,7 @@ select:focus,input:focus{border-color:var(--accent)}
     <div class="info-box">
       <strong style="color:var(--text)">📌 使用說明</strong><br>
       1. 確認 server.js 已用 node 執行<br>
-      2. 填入 API-Football Key<br>
+      2. 填入 API-Football 金鑰<br>
       3. 選聯賽 → 載入賽事<br>
       4. 點場次 → AI 分析<br><br>
       <strong style="color:var(--accent)">📊 分析內容</strong><br>
@@ -245,6 +269,11 @@ select:focus,input:focus{border-color:var(--accent)}
 </main>
 <script>
 const STATUS_MAP={NS:'upcoming',TBD:'upcoming',PST:'upcoming','1H':'live','2H':'live',HT:'live',ET:'live',P:'live',LIVE:'live',BT:'live',FT:'finished',AET:'finished',PEN:'finished',AWD:'finished',WO:'finished',SUSP:'finished',INT:'finished',ABD:'finished',CANC:'finished'};
+// 球隊名稱中譯（涵蓋世界盃與主要國家隊；對照不到則保留原文）
+const TEAM_TW={
+'France':'法國','Spain':'西班牙','England':'英格蘭','Germany':'德國','Brazil':'巴西','Argentina':'阿根廷','Portugal':'葡萄牙','Netherlands':'荷蘭','Italy':'義大利','Belgium':'比利時','Croatia':'克羅埃西亞','Mexico':'墨西哥','USA':'美國','United States':'美國','Canada':'加拿大','Uruguay':'烏拉圭','Colombia':'哥倫比亞','Japan':'日本','South Korea':'南韓','Korea Republic':'南韓','South-Korea':'南韓','Australia':'澳洲','Morocco':'摩洛哥','Senegal':'塞內加爾','Ghana':'迦納','Nigeria':'奈及利亞','Cameroon':'喀麥隆','Egypt':'埃及','Tunisia':'突尼西亞','Algeria':'阿爾及利亞','Ivory Coast':'象牙海岸','Cote d\'Ivoire':'象牙海岸','Saudi Arabia':'沙烏地阿拉伯','Iran':'伊朗','Qatar':'卡達','Switzerland':'瑞士','Denmark':'丹麥','Sweden':'瑞典','Poland':'波蘭','Serbia':'塞爾維亞','Austria':'奧地利','Ukraine':'烏克蘭','Wales':'威爾斯','Scotland':'蘇格蘭','Norway':'挪威','Turkey':'土耳其','Türkiye':'土耳其','Greece':'希臘','Czech Republic':'捷克','Czechia':'捷克','Romania':'羅馬尼亞','Hungary':'匈牙利','Ecuador':'厄瓜多','Peru':'秘魯','Chile':'智利','Paraguay':'巴拉圭','Venezuela':'委內瑞拉','Bolivia':'玻利維亞','Costa Rica':'哥斯大黎加','Panama':'巴拿馬','Jamaica':'牙買加','Honduras':'宏都拉斯','Jordan':'約旦','Iraq':'伊拉克','Uzbekistan':'烏茲別克','New Zealand':'紐西蘭','Curacao':'庫拉索','Curaçao':'庫拉索','Cape Verde':'維德角','South Africa':'南非','DR Congo':'剛果民主共和國','Congo DR':'剛果民主共和國','Congo-DR':'剛果民主共和國','Slovenia':'斯洛維尼亞','Slovakia':'斯洛伐克','Finland':'芬蘭','Ireland':'愛爾蘭','Iceland':'冰島','Russia':'俄羅斯','Israel':'以色列','Mali':'馬利','Burkina Faso':'布吉納法索','Angola':'安哥拉','Zambia':'尚比亞','Gabon':'加彭','Guinea':'幾內亞','Montenegro':'蒙特內哥羅','Albania':'阿爾巴尼亞','Georgia':'喬治亞','Bosnia and Herzegovina':'波士尼亞','North Macedonia':'北馬其頓','Haiti':'海地','El Salvador':'薩爾瓦多','Guatemala':'瓜地馬拉','Trinidad and Tobago':'千里達','China':'中國','China PR':'中國','Thailand':'泰國','Vietnam':'越南','Indonesia':'印尼','Oman':'阿曼','Bahrain':'巴林','UAE':'阿聯','United Arab Emirates':'阿聯','Kuwait':'科威特','Palestine':'巴勒斯坦','Lebanon':'黎巴嫩','Syria':'敘利亞','India':'印度'
+};
+function tw(n){return (n&&TEAM_TW[n])||n||'';}
 let currentTab='upcoming',allMatches=[],filteredMatches=[],selectedIdx=null;
 
 function switchTab(t){currentTab=t;selectedIdx=null;document.querySelectorAll('.tab').forEach((el,i)=>el.classList.toggle('active',['upcoming','live','finished'][i]===t));document.getElementById('analyze-btn').disabled=true;document.getElementById('result-card').classList.add('hidden');renderMatches()}
@@ -286,7 +315,7 @@ function renderMatches(){
     const sc=(m.homeGoals!==null&&m.awayGoals!==null)?`${m.homeGoals} - ${m.awayGoals}`:null;
     const lh=m.homeLogo?`<img class="team-logo" src="${m.homeLogo}" alt="" onerror="this.outerHTML='<div class=team-placeholder>${m.home.substring(0,2).toUpperCase()}</div>'">`:`<div class="team-placeholder">${m.home.substring(0,2).toUpperCase()}</div>`;
     const la=m.awayLogo?`<img class="team-logo" src="${m.awayLogo}" alt="" onerror="this.outerHTML='<div class=team-placeholder>${m.away.substring(0,2).toUpperCase()}</div>'">`:`<div class="team-placeholder">${m.away.substring(0,2).toUpperCase()}</div>`;
-    return`<div class="match-card" id="mc${i}" onclick="selectMatch(${i})"><div class="match-meta"><span class="meta-tag">🕐 ${ts}</span>${m.venue?`<span class="meta-tag">📍 ${m.venue}</span>`:''} ${m.status==='live'?`<span class="live-tag">● LIVE${m.elapsed?" "+m.elapsed+"'":""}</span>`:''}</div><div class="match-teams"><div class="team">${lh}<span class="team-name">${m.home}</span></div><div class="score-box">${sc?`<div class="score">${sc}</div>`:`<div class="vs">VS</div>`}</div><div class="team team-away"><span class="team-name">${m.away}</span>${la}</div></div></div>`;
+    return`<div class="match-card" id="mc${i}" onclick="selectMatch(${i})"><div class="match-meta"><span class="meta-tag">🕐 ${ts}</span>${m.venue?`<span class="meta-tag">📍 ${m.venue}</span>`:''} ${m.status==='live'?`<span class="live-tag">● 直播中${m.elapsed?" "+m.elapsed+"'":""}</span>`:''}</div><div class="match-teams"><div class="team">${lh}<span class="team-name">${tw(m.home)}</span></div><div class="score-box">${sc?`<div class="score">${sc}</div>`:`<div class="vs">對</div>`}</div><div class="team team-away"><span class="team-name">${tw(m.away)}</span>${la}</div></div></div>`;
   }).join('');
 }
 
@@ -428,7 +457,7 @@ async function analyzeSelected(){
   btn.disabled=true;
   const card=document.getElementById('result-card');
   card.classList.remove('hidden');
-  document.getElementById('result-title').textContent=`${m.home} vs ${m.away}`;
+  document.getElementById('result-title').textContent=`${tw(m.home)} 對 ${tw(m.away)}`;
   document.getElementById('result-sub').textContent=`${m.league} · 真實數據分析`;
   const rc=document.getElementById('result-content');
   rc.innerHTML='<div class="loading-state"><div class="spinner"></div><div>抓取兩隊歷史比賽資料中...</div></div>';
@@ -476,6 +505,7 @@ async function analyzeSelected(){
     const h2hTxt=h2hFin.map(f=>`${f.teams.home.name} ${f.goals.home}-${f.goals.away} ${f.teams.away.name}`).join('；')||'無歷史交手紀錄';
     const adjTxt=[pred.useOpener?'大賽首戰停利下調':'',pred.useDilution?`含金量壓制(${pred.dogName}面對頂級強權${pred.favName})`:''].filter(Boolean).join('、')||'未套用大賽修正';
     const prompt=`你是頂級足球戰術分析師。下方為真實統計與「已套用大賽修正」的雙劇本 Poisson 模型結果（機率已算出，不需重算）。
+**請全程以繁體中文回覆，球隊名稱一律使用中文：${m.home}=${tw(m.home)}、${m.away}=${tw(m.away)}。**
 請先用 web_search 查這場最新賽前資訊（傷停、停賽、預期先發、近期狀態、教練談話），**只採用可信來源**（球隊/協會官網、FIFA、BBC Sport、ESPN、Reuters、The Athletic、Sky Sports），避免論壇與內容農場。再結合下方資料做戰術解讀。
 賽事：${m.league}，${m.home}(主) vs ${m.away}(客)，場地 ${m.venue||'未知'}。${(m.homeGoals!=null&&m.awayGoals!=null)?`目前比分 ${m.homeGoals}-${m.awayGoals}。`:''}
 【已套用修正】${adjTxt}
@@ -536,26 +566,26 @@ function renderPrediction(m,pred,mWinner){
   const ouRec=pred.overUnder==='over'?`大分（大於 2.5 球，${ouOver}%）`:`小分（小於 2.5 球，${100-ouOver}%）`;
   const scenAp=(c.top.find(s=>s.h===pred.scenA.h&&s.a===pred.scenA.a)||{}).p;
   return `
-    <div class="winner-banner"><div><div class="winner-label">模型預測勝者</div><div class="winner-name">${mWinner}</div></div><div style="text-align:right"><div class="winner-label">大小分推薦</div><div class="predicted-score" style="font-size:18px">${pred.overUnder==='over'?'大分':'小分'}</div></div></div>
+    <div class="winner-banner"><div><div class="winner-label">模型預測勝者</div><div class="winner-name">${tw(mWinner)}</div></div><div style="text-align:right"><div class="winner-label">大小分推薦</div><div class="predicted-score" style="font-size:18px">${pred.overUnder==='over'?'大分':'小分'}</div></div></div>
     <div style="margin:-6px 0 14px">${badges}</div>
-    <div class="prob-title">勝負機率（Poisson 模型 · 已修正）</div>
-    <div class="prob-row"><div class="prob-label" title="${m.home}">${m.home}</div><div class="prob-track"><div class="prob-fill home" style="width:${hw}%"></div></div><div class="prob-pct">${hw}%</div></div>
+    <div class="prob-title">勝負機率（卜瓦松模型 · 已修正）</div>
+    <div class="prob-row"><div class="prob-label" title="${tw(m.home)}">${tw(m.home)}</div><div class="prob-track"><div class="prob-fill home" style="width:${hw}%"></div></div><div class="prob-pct">${hw}%</div></div>
     <div class="prob-row"><div class="prob-label">平局</div><div class="prob-track"><div class="prob-fill draw" style="width:${dw}%"></div></div><div class="prob-pct">${dw}%</div></div>
-    <div class="prob-row"><div class="prob-label" title="${m.away}">${m.away}</div><div class="prob-track"><div class="prob-fill away" style="width:${aw}%"></div></div><div class="prob-pct">${aw}%</div></div>
+    <div class="prob-row"><div class="prob-label" title="${tw(m.away)}">${tw(m.away)}</div><div class="prob-track"><div class="prob-fill away" style="width:${aw}%"></div></div><div class="prob-pct">${aw}%</div></div>
 
     <div class="data-section"><div class="data-section-title">🎬 動態雙波膽劇本</div>
       <div class="script-box main"><div class="script-head"><span class="script-tag main">A 劇本 · 控制流</span><span class="script-sub">主推 · 高機率</span></div>
-        <div class="script-score">${pred.scenA.h} - ${pred.scenA.a}${scenAp?` <span class="script-prob">${(scenAp*100).toFixed(1)}%</span>`:''}</div>
-        <div class="script-desc">${pred.favName}領先後放慢節奏、控球養生，全場走低比分控制；大小分偏${pred.overUnder==='over'?'大':'小'}。</div></div>
+        <div class="script-score"><span class="sc-num">${pred.scenA.h} - ${pred.scenA.a}</span>${scenAp?`<span class="script-prob">${(scenAp*100).toFixed(1)}%</span>`:''}</div>
+        <div class="script-desc">${tw(pred.favName)}領先後放慢節奏、控球養生，全場走低比分控制；大小分偏${pred.overUnder==='over'?'大':'小'}。</div></div>
       <div class="script-box hedge"><div class="script-head"><span class="script-tag hedge">B 劇本 · 暴走流</span><span class="script-sub">次推 · 防冷門</span></div>
-        <div class="script-score">${pred.scenB.h} - ${pred.scenB.a}</div>
-        <div class="script-desc">若${pred.dogName}前段紅牌/送點/低級失誤早早掉球，防線被迫拉開對攻，比分失控放大。</div></div>
+        <div class="script-score"><span class="sc-num">${pred.scenB.h} - ${pred.scenB.a}</span></div>
+        <div class="script-desc">若${tw(pred.dogName)}前段紅牌/送點/低級失誤早早掉球，防線被迫拉開對攻，比分失控放大。</div></div>
     </div>
 
     <div class="data-section"><div class="data-section-title">🎯 波膽機率分布（控制流模型）</div>
-      <div class="xg-row"><div class="xg-box"><div class="xg-label">${m.home} 預期進球</div><div class="xg-val">${c.hL.toFixed(2)}</div></div><div class="xg-box"><div class="xg-label">${m.away} 預期進球</div><div class="xg-val away">${c.aL.toFixed(2)}</div></div></div>
+      <div class="xg-row"><div class="xg-box"><div class="xg-label">${tw(m.home)} 預期進球</div><div class="xg-val">${c.hL.toFixed(2)}</div></div><div class="xg-box"><div class="xg-label">${tw(m.away)} 預期進球</div><div class="xg-val away">${c.aL.toFixed(2)}</div></div></div>
       <div class="score-list">${scoreRows}</div>
-      <div class="data-note">大小分推薦：${ouRec}　•　兩隊都進球 ${pct(c.btts)}%　•　機率經 Poisson 公式計算並套用大賽修正，非 AI 估計</div>
+      <div class="data-note">大小分推薦：${ouRec}　•　兩隊都進球 ${pct(c.btts)}%　•　機率經卜瓦松公式計算並套用大賽修正，非 AI 估計</div>
     </div>`;
 }
 
@@ -581,10 +611,10 @@ function renderDataSections(m,hs,as,hp,ap,h2hFin){
 
   const h2hSection=`<div class="data-section"><div class="data-section-title">⚔️ 歷史交手</div>${h2hFin.length?`<div class="h2h-list">${h2hFin.map(f=>{
     const d=new Date(f.fixture.date).toLocaleDateString('zh-TW',{year:'numeric',month:'numeric'});
-    return`<div class="h2h-item"><div class="h2h-team r">${f.teams.home.name}</div><div><div class="h2h-score">${f.goals.home} - ${f.goals.away}</div><div class="h2h-date">${d}</div></div><div class="h2h-team">${f.teams.away.name}</div></div>`;
+    return`<div class="h2h-item"><div class="h2h-team r">${tw(f.teams.home.name)}</div><div><div class="h2h-score">${f.goals.home} - ${f.goals.away}</div><div class="h2h-date">${d}</div></div><div class="h2h-team">${tw(f.teams.away.name)}</div></div>`;
   }).join('')}</div>`:'<div class="data-note">查無兩隊歷史交手紀錄</div>'}</div>`;
 
-  const playerCol=(title,pat)=>`<div><div class="player-col-title">${title}</div>${pat.players.length?pat.players.map(p=>{
+  const playerCol=(title,pat)=>`<div><div class="player-col-title">${tw(title)}</div>${pat.players.length?pat.players.map(p=>{
     const wr=Math.round(p.winRate*100);const cls=wr>=60?'hi':wr>=40?'mid':'lo';
     return`<div class="player-row"><div class="player-name">${p.name}</div><div class="player-stat"><span>${p.apps}場</span><span class="player-wr ${cls}">勝${wr}%</span><span>進${p.avgGf.toFixed(1)}</span></div></div>`;
   }).join(''):`<div class="data-note">${pat.withLineup<2?'出場名單資料不足':'無常規先發資料'}</div>`}</div>`;
