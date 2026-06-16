@@ -6,6 +6,9 @@ const url = require('url');
 
 const PORT = 3000;
 
+// ── 從環境變數讀取 Anthropic API 金鑰 ──
+const ANTHROPIC_API_KEY = process.env.ANTHROPIC_API_KEY || '';
+
 // ── CORS headers ──
 function setCORS(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -64,6 +67,11 @@ const server = http.createServer(async (req, res) => {
 
   // ── Proxy: Anthropic Claude ──
   if (pathname === '/api/claude') {
+    if (!ANTHROPIC_API_KEY) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '伺服器未設定 ANTHROPIC_API_KEY 環境變數' }));
+      return;
+    }
     let body = '';
     req.on('data', chunk => body += chunk);
     req.on('end', async () => {
@@ -74,6 +82,7 @@ const server = http.createServer(async (req, res) => {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
+            'x-api-key': ANTHROPIC_API_KEY,
             'anthropic-version': '2023-06-01',
             'Content-Length': Buffer.byteLength(body)
           }
@@ -94,5 +103,6 @@ const server = http.createServer(async (req, res) => {
 server.listen(PORT, () => {
   console.log(`\n✅ 足球 AI 預測伺服器已啟動！`);
   console.log(`🌐 請用瀏覽器開啟：http://localhost:${PORT}`);
+  console.log(`🔑 Anthropic 金鑰：${ANTHROPIC_API_KEY ? '已設定 ✓' : '未設定 ✗（AI 分析會失敗）'}`);
   console.log(`\n按 Ctrl+C 停止伺服器\n`);
 });

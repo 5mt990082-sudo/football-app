@@ -100,16 +100,23 @@ select:focus,input:focus{border-color:var(--accent)}
       <label>聯賽</label>
       <select id="league-select">
         <optgroup label="🏆 國際賽事">
-          <option value="1|2026">世界盃 2026</option>
-          <option value="4|2024">歐洲盃</option>
-          <option value="2|2024">歐冠 Champions League</option>
+          <option value="1|2022">世界盃 2022（免費方案）</option>
+          <option value="4|2024">歐洲盃 2024</option>
+          <option value="2|2024">歐冠 2024/25</option>
         </optgroup>
-        <optgroup label="⚽ 五大聯賽">
+        <optgroup label="⚽ 五大聯賽 2024/25">
           <option value="39|2024">英超 Premier League</option>
           <option value="140|2024">西甲 La Liga</option>
           <option value="135|2024">義甲 Serie A</option>
           <option value="78|2024">德甲 Bundesliga</option>
           <option value="61|2024">法甲 Ligue 1</option>
+        </optgroup>
+        <optgroup label="⚽ 五大聯賽 2023/24（歷史）">
+          <option value="39|2023">英超 2023/24</option>
+          <option value="140|2023">西甲 2023/24</option>
+          <option value="135|2023">義甲 2023/24</option>
+          <option value="78|2023">德甲 2023/24</option>
+          <option value="61|2023">法甲 2023/24</option>
         </optgroup>
       </select>
       <label>日期範圍</label>
@@ -140,7 +147,9 @@ select:focus,input:focus{border-color:var(--accent)}
       1. 確認 server.js 已用 node 執行<br>
       2. 填入 API-Football Key<br>
       3. 選聯賽 → 載入賽事<br>
-      4. 點場次 → AI 分析
+      4. 點場次 → AI 分析<br><br>
+      <strong style="color:var(--yellow)">⚠️ 免費方案限制</strong><br>
+      免費 API Key 僅支援 2022–2024 賽季。世界盃請選「2022」,五大聯賽請選「2024/25」或「2023/24」。
     </div>
   </aside>
   <div class="content">
