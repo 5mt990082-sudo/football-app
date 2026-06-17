@@ -784,16 +784,32 @@ function recomputePred(){
 let oddsCache={wcId:null,fixtures:null,odds:null,at:0};
 async function oddsGet(path){
   const res=await fetch('/api/odds'+path);
-  const data=await res.json();
-  if(data&&data.error)throw new Error(data.error);
+  let data;
+  try{ data=await res.json(); }
+  catch(_){ throw new Error('OddsPapi 回傳非 JSON（HTTP '+res.status+'）'); }
+  console.log('[OddsPapi]',path,'→ HTTP',res.status,data);
+  if(data&&data.error){
+    const msg=typeof data.error==='string'?data.error:JSON.stringify(data.error);
+    throw new Error(msg);
+  }
+  if(data&&(data.message||data.code||data.statusCode)&&!Array.isArray(data)){
+    throw new Error('OddsPapi: '+JSON.stringify(data).slice(0,200));
+  }
+  if(!res.ok)throw new Error('OddsPapi HTTP '+res.status+'：'+JSON.stringify(data).slice(0,200));
   return data;
 }
 function normName(s){return (s||'').toLowerCase().replace(/[^a-z]/g,'');}
 async function resolveWcId(){
   if(oddsCache.wcId)return oddsCache.wcId;
   const ts=await oddsGet('/tournaments?sportId=10');
-  const wc=(ts||[]).find(t=>/world[-\s]?cup/i.test(t.tournamentName||'')||/world-cup/i.test(t.tournamentSlug||''));
-  if(!wc)throw new Error('OddsPapi 找不到世界盃賽事');
+  const list=Array.isArray(ts)?ts:[];
+  const wc=list.find(t=>/world[-\s]?cup/i.test(t.tournamentName||'')||/world-cup/i.test(t.tournamentSlug||''));
+  if(!wc){
+    console.log('[OddsPapi] 足球賽事清單（找不到世界盃）：',list.map(t=>({id:t.tournamentId,name:t.tournamentName,slug:t.tournamentSlug})));
+    throw new Error('在足球賽事清單中找不到「World Cup」，請看 Console 的賽事清單');
+  }
+  if(wc.tournamentId==null)throw new Error('找到世界盃但無 tournamentId 欄位（結構不符）');
+  console.log('[OddsPapi] 世界盃 tournamentId =',wc.tournamentId,wc.tournamentName);
   oddsCache.wcId=wc.tournamentId;return wc.tournamentId;
 }
 // 從某場 odds 物件抽出大小分 2.5 的 Over/Under 賠率
@@ -825,7 +841,8 @@ async function fetchOddsCompare(){
   try{
     const wcId=await resolveWcId();
     if(!oddsCache.fixtures||Date.now()-oddsCache.at>300000){
-      oddsCache.fixtures=await oddsGet(`/fixtures?tournamentId=${wcId}&hasOdds=true&bookmakers=pinnacle`);
+      // fixtures 只帶 tournamentId（文件說可單獨使用），避免參數組合造成 404
+      oddsCache.fixtures=await oddsGet(`/fixtures?tournamentId=${wcId}`);
       oddsCache.odds=await oddsGet(`/odds-by-tournaments?bookmaker=pinnacle&tournamentIds=${wcId}`);
       oddsCache.at=Date.now();
     }
@@ -860,7 +877,7 @@ async function fetchOddsCompare(){
     }else{
       set(`🎲 Pinnacle 大分隱含 ${mk}% vs 模型 ${mm}%：差距不足 ±10%，未觸發修正`,'ok');
     }
-  }catch(e){set('🎲 盤口比對失敗：'+e.message+'（可能未設定 ODDSPAPI_KEY 或額度用盡）','warn');}
+  }catch(e){set('🎲 盤口比對失敗：'+(e&&e.message?e.message:String(e))+'（可能未設定 ODDSPAPI_KEY、端點未開放，或額度用盡）','warn');}
 }
 
 // ── 智能配注：狀態與演算法 ──
