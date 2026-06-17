@@ -203,6 +203,14 @@ select:focus,input:focus{border-color:var(--accent)}
 .acc-body.open{max-height:600px}
 .acc-btn{width:100%;margin-top:8px;padding:8px;background:rgba(124,90,240,.1);border:1px solid rgba(124,90,240,.28);border-radius:var(--radius-sm);color:#c4a8ff;font-size:12px;font-weight:600;cursor:pointer}
 .acc-btn:hover{background:rgba(124,90,240,.18)}
+.odds-btn{width:100%;margin-top:12px;padding:11px;background:linear-gradient(135deg,rgba(245,166,35,.16),rgba(236,72,153,.12));border:1px solid rgba(245,166,35,.35);border-radius:var(--radius-sm);color:#f5d08a;font-size:13px;font-weight:700;cursor:pointer}
+.odds-btn:hover{background:linear-gradient(135deg,rgba(245,166,35,.26),rgba(236,72,153,.2))}
+.odds-status{font-size:12px;line-height:1.6;margin-top:8px;border-radius:var(--radius-sm);padding:0}
+.odds-status:not(:empty){padding:9px 11px;border:1px solid var(--border)}
+.odds-status.load{color:var(--text2);background:rgba(255,255,255,.03)}
+.odds-status.hit{color:#6ee7b7;background:rgba(52,211,153,.08);border-color:rgba(52,211,153,.35)}
+.odds-status.ok{color:var(--text2);background:rgba(79,142,247,.06);border-color:rgba(79,142,247,.25)}
+.odds-status.warn{color:#fbbf73;background:rgba(245,166,35,.07);border-color:rgba(245,166,35,.3)}
 .score-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px}
 .score-row .score-label{width:42px;flex-shrink:0}
 .score-row .score-track{flex:1 1 90px}
@@ -703,7 +711,9 @@ function livePanelHTML(){
       <label class="live-row"><input type="checkbox" id="live-odds" onchange="recomputePred()"><span><b>盤口大資金湧入大球</b><br><span class="live-hint">大球賠率暴跌 → 調降控制流、提高大分權重防翻車</span></span></label>
       <label class="live-row"><input type="checkbox" id="live-group" onchange="recomputePred()"><span><b>小組賽第一輪（搶淨勝球）</b><br><span class="live-hint">強隊刷淨勝球意願高 → 降低 1-0 養生停利機率</span></span></label>
     </div>
-    <div class="data-note">官方首發與盤口資金流目前無即時資料源，故採手動校正；勾選後頂部狀態燈會切換為「已校正」。</div>
+    <button class="odds-btn" onclick="fetchOddsCompare()">🎲 抓取 Pinnacle 盤口並比對（約耗 2 次額度）</button>
+    <div id="odds-status" class="odds-status"></div>
+    <div class="data-note">官方首發資料源仍缺，故首發採手動勾選；盤口改為「按鈕觸發」自動比對 Pinnacle 大小分隱含機率，避免每次分析都消耗額度。</div>
   </div>`;
 }
 
@@ -768,6 +778,89 @@ function recomputePred(){
   stakeData={overProb:c.over25,recommend:pred.overUnder,top3:c.top.slice(0,3).map(s=>({score:`${s.h}-${s.a}`,prob:s.p}))};
   setStatusLight(pred.liveActive);
   updateStake();
+}
+
+// ── OddsPapi 盤口比對（做法A：單次快照 vs 模型對照）──
+let oddsCache={wcId:null,fixtures:null,odds:null,at:0};
+async function oddsGet(path){
+  const res=await fetch('/api/odds'+path);
+  const data=await res.json();
+  if(data&&data.error)throw new Error(data.error);
+  return data;
+}
+function normName(s){return (s||'').toLowerCase().replace(/[^a-z]/g,'');}
+async function resolveWcId(){
+  if(oddsCache.wcId)return oddsCache.wcId;
+  const ts=await oddsGet('/tournaments?sportId=10');
+  const wc=(ts||[]).find(t=>/world[-\s]?cup/i.test(t.tournamentName||'')||/world-cup/i.test(t.tournamentSlug||''));
+  if(!wc)throw new Error('OddsPapi 找不到世界盃賽事');
+  oddsCache.wcId=wc.tournamentId;return wc.tournamentId;
+}
+// 從某場 odds 物件抽出大小分 2.5 的 Over/Under 賠率
+function extractOU25(fixtureOdds){
+  try{
+    const bk=fixtureOdds.bookmakerOdds&&fixtureOdds.bookmakerOdds.pinnacle;
+    const mks=bk&&bk.markets;if(!mks)return null;
+    for(const key of Object.keys(mks)){
+      const mkt=mks[key];
+      const isOU=key==='106'||mkt.marketId===106||/over.?under|total/i.test(mkt.marketType||mkt.marketName||'');
+      if(!isOU)continue;
+      const hcap=mkt.handicap!=null?Number(mkt.handicap):null;
+      if(hcap!=null&&Math.abs(hcap-2.5)>0.01)continue; // 只要 2.5 那條線
+      const o=mkt.outcomes&&(mkt.outcomes['106']||mkt.outcomes['Over']);
+      const u=mkt.outcomes&&(mkt.outcomes['107']||mkt.outcomes['Under']);
+      const op=o&&o.players&&o.players['0']&&o.players['0'].price;
+      const up=u&&u.players&&u.players['0']&&u.players['0'].price;
+      if(op&&up)return{over:op,under:up,hcap};
+    }
+  }catch(e){}
+  return null;
+}
+async function fetchOddsCompare(){
+  if(!predCtx)return;
+  const m=predCtx.m, modelOver=predCtx.pred.control.over25;
+  const el=document.getElementById('odds-status');
+  const set=(t,cls)=>{if(el){el.className='odds-status '+(cls||'');el.innerHTML=t;}};
+  set('🎲 連線 OddsPapi、比對盤口中…','load');
+  try{
+    const wcId=await resolveWcId();
+    if(!oddsCache.fixtures||Date.now()-oddsCache.at>300000){
+      oddsCache.fixtures=await oddsGet(`/fixtures?tournamentId=${wcId}&hasOdds=true&bookmakers=pinnacle`);
+      oddsCache.odds=await oddsGet(`/odds-by-tournaments?bookmaker=pinnacle&tournamentIds=${wcId}`);
+      oddsCache.at=Date.now();
+    }
+    const fx=oddsCache.fixtures||[];
+    const h=normName(m.home), a=normName(m.away);
+    const tSel=new Date(m.date).getTime();
+    let best=null,bestDt=1/0;
+    for(const f of fx){
+      const p1=normName(f.participant1Name)+normName(f.participant1ShortName);
+      const p2=normName(f.participant2Name)+normName(f.participant2ShortName);
+      const match=(p1.includes(h)&&p2.includes(a))||(p1.includes(a)&&p2.includes(h));
+      if(!match)continue;
+      const dt=Math.abs(new Date(f.startTime).getTime()-tSel);
+      if(dt<bestDt){bestDt=dt;best=f;}
+    }
+    if(!best){set('🎲 在 OddsPapi 找不到對應的世界盃場次（隊名或時間對不上）','warn');return;}
+    const oddsArr=oddsCache.odds||[];
+    const fo=oddsArr.find(x=>x.fixtureId===best.fixtureId);
+    if(!fo){set('🎲 找到場次但無 Pinnacle 賠率資料','warn');return;}
+    console.log('[OddsPapi 原始賠率物件]',fo);
+    const ou=extractOU25(fo);
+    if(!ou){set('🎲 已連到盤口，但解析不到「大小分 2.5」賠率。請打開瀏覽器 Console 複製 [OddsPapi 原始賠率物件] 給我微調。','warn');return;}
+    const impliedOver=(1/ou.over)/((1/ou.over)+(1/ou.under));
+    const diff=impliedOver-modelOver;
+    const mk=Math.round(impliedOver*100), mm=Math.round(modelOver*100);
+    if(diff>=0.10){
+      const box=document.getElementById('live-odds');
+      if(box&&!box.checked){box.checked=true;recomputePred();}
+      set(`🎲 Pinnacle 大分隱含 ${mk}% ＞ 模型 ${mm}%（+${Math.round(diff*100)}%）→ 已自動勾選「盤口湧入大球」`,'hit');
+    }else if(diff<=-0.10){
+      set(`🎲 Pinnacle 大分隱含 ${mk}% ＜ 模型 ${mm}%：市場偏小分，維持控制流`,'ok');
+    }else{
+      set(`🎲 Pinnacle 大分隱含 ${mk}% vs 模型 ${mm}%：差距不足 ±10%，未觸發修正`,'ok');
+    }
+  }catch(e){set('🎲 盤口比對失敗：'+e.message+'（可能未設定 ODDSPAPI_KEY 或額度用盡）','warn');}
 }
 
 // ── 智能配注：狀態與演算法 ──
