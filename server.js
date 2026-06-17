@@ -21,6 +21,9 @@ function loadAnthropicKey() {
 }
 const ANTHROPIC_API_KEY = loadAnthropicKey();
 
+// ── OddsPapi 盤口金鑰（從環境變數讀取）──
+const ODDSPAPI_KEY = (process.env.ODDSPAPI_KEY || '').trim();
+
 // ── CORS headers ──
 function setCORS(res) {
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -79,6 +82,32 @@ const server = http.createServer(async (req, res) => {
     return;
   }
 
+  // ── Proxy: OddsPapi 盤口（金鑰由伺服器附加，前端看不到）──
+  // 前端呼叫 /api/odds/odds-by-tournaments?bookmaker=pinnacle&tournamentIds=X
+  if (pathname.startsWith('/api/odds/')) {
+    if (!ODDSPAPI_KEY) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: '伺服器未設定 ODDSPAPI_KEY 環境變數' }));
+      return;
+    }
+    const endpoint = pathname.replace('/api/odds', ''); // 例如 /odds-by-tournaments
+    const q = parsed.search || '';
+    const sep = q ? '&' : '?';
+    try {
+      const result = await httpsRequest({
+        hostname: 'api.oddspapi.io',
+        path: '/v4' + endpoint + q + sep + 'apiKey=' + encodeURIComponent(ODDSPAPI_KEY),
+        method: 'GET'
+      });
+      res.writeHead(result.status, { 'Content-Type': 'application/json' });
+      res.end(result.body);
+    } catch (e) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: e.message }));
+    }
+    return;
+  }
+
   // ── Proxy: Anthropic Claude ──
   if (pathname === '/api/claude') {
     if (!ANTHROPIC_API_KEY) {
@@ -118,5 +147,6 @@ server.listen(PORT, () => {
   console.log(`\n✅ 足球 AI 預測伺服器已啟動！`);
   console.log(`🌐 請用瀏覽器開啟：http://localhost:${PORT}`);
   console.log(`🔑 Anthropic 金鑰：${ANTHROPIC_API_KEY ? '已設定 ✓' : '未設定 ✗（請設環境變數，或在同資料夾建立 anthropic-key.txt）'}`);
+  console.log(`🎲 OddsPapi 金鑰：${ODDSPAPI_KEY ? '已設定 ✓' : '未設定 ✗（盤口自動偵測停用，可手動勾選）'}`);
   console.log(`\n按 Ctrl+C 停止伺服器\n`);
 });
