@@ -499,14 +499,18 @@ function buildPrediction(m,hs,as,opts){
   if(homeFav){hB*=ADJ.chaosFavBoost; aB*=CHAOS_DOG_BOOST;} else {aB*=ADJ.chaosFavBoost; hB*=CHAOS_DOG_BOOST;}
   const chaos=poissonGrid(hB,aB);
 
-  // A劇本主推：控制流中最可能的「低比分」(總分≤2)
-  const scenA=control.top.find(s=>(s.h+s.a)<=2)||control.top[0];
-  // B劇本防冷：暴走流中最可能的「大比分」(總分≥3)
-  const scenB=chaos.top.find(s=>(s.h+s.a)>=3)||chaos.top[0];
+  // 主推比分(A劇本)跟著大小分推薦走，避免「推大分卻給低比分」的矛盾
+  const isOver=control.over25>=0.5;
+  const scenA=isOver
+    ? (control.top.find(s=>(s.h+s.a)>=3)||control.top[0])   // 偏大分→對攻高比分
+    : (control.top.find(s=>(s.h+s.a)<=2)||control.top[0]);  // 偏小分→控制低比分
+  const scenB=isOver
+    ? (control.top.find(s=>(s.h+s.a)<=2)||chaos.top[0])     // 防冷：萬一變控制低分
+    : (chaos.top.find(s=>(s.h+s.a)>=3)||chaos.top[0]);      // 防冷：暴走大比分
 
   return{control,chaos,scenA,scenB,favName,dogName,homeFav,useDilution,useOpener,favElite,
-    live,liveActive,
-    overUnder:control.over25>=0.5?'over':'under'};
+    live,liveActive,isOver,
+    overUnder:isOver?'over':'under'};
 }
 
 // ── 從近期比賽算進攻/防守數據 ──
@@ -695,12 +699,16 @@ function pvAnalysis(m,pred){
     <div class="prob-row"><div class="prob-label">平局</div><div class="prob-track"><div class="prob-fill draw" style="width:${dw}%"></div></div><div class="prob-pct">${dw}%</div></div>
     <div class="prob-row"><div class="prob-label" title="${tw(m.away)}">${tw(m.away)}</div><div class="prob-track"><div class="prob-fill away" style="width:${aw}%"></div></div><div class="prob-pct">${aw}%</div></div>
     <div class="data-section"><div class="data-section-title">🎬 動態雙波膽劇本</div>
-      <div class="script-box main"><div class="script-head"><span class="script-tag main">A 劇本 · 控制流</span><span class="script-sub">主推 · 高機率</span></div>
+      <div class="script-box main"><div class="script-head"><span class="script-tag main">A 劇本 · ${pred.isOver?'對攻流':'控制流'}</span><span class="script-sub">主推 · 高機率</span></div>
         <div class="script-score"><span class="sc-num">${pred.scenA.h} - ${pred.scenA.a}</span>${scenAp?`<span class="script-prob">${(scenAp*100).toFixed(1)}%</span>`:''}</div>
-        <div class="script-desc">${tw(pred.favName)}領先後放慢節奏、控球養生，全場走低比分控制；大小分偏${pred.overUnder==='over'?'大':'小'}。</div></div>
-      <div class="script-box hedge"><div class="script-head"><span class="script-tag hedge">B 劇本 · 暴走流</span><span class="script-sub">次推 · 防冷門</span></div>
+        <div class="script-desc">${pred.isOver
+          ?`雙方攻防開放、節奏拉高，${tw(pred.favName)}火力傾洩，全場走高比分；大小分偏大。`
+          :`${tw(pred.favName)}領先後放慢節奏、控球養生，全場走低比分控制；大小分偏小。`}</div></div>
+      <div class="script-box hedge"><div class="script-head"><span class="script-tag hedge">B 劇本 · ${pred.isOver?'鎖喉流':'暴走流'}</span><span class="script-sub">次推 · 防冷門</span></div>
         <div class="script-score"><span class="sc-num">${pred.scenB.h} - ${pred.scenB.a}</span></div>
-        <div class="script-desc">若${tw(pred.dogName)}前段紅牌/送點/低級失誤早早掉球，防線被迫拉開對攻，比分失控放大。</div></div>
+        <div class="script-desc">${pred.isOver
+          ?`若節奏被掐住、雙方謹慎保守，比賽回到低比分僵局。`
+          :`若${tw(pred.dogName)}前段紅牌/送點/低級失誤早早掉球，防線被迫拉開對攻，比分失控放大。`}</div></div>
     </div>`;
 }
 
