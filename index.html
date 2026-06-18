@@ -169,6 +169,15 @@ select:focus,input:focus{border-color:var(--accent)}
 .stake-tag{font-size:10.5px;font-weight:700;color:#34d399;background:rgba(52,211,153,.12);border:1px solid rgba(52,211,153,.3);padding:2px 8px;border-radius:100px;white-space:nowrap;flex-shrink:0}
 /* 狀態燈號（呼吸燈） */
 .status-light{display:flex;align-items:center;gap:10px;padding:12px 16px;border-radius:var(--radius);margin-bottom:16px;backdrop-filter:blur(10px);border:1px solid var(--border);flex-wrap:wrap}
+/* 三頁籤 */
+.tabs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:6px;margin-bottom:16px;position:sticky;top:0;z-index:5;background:var(--surface);padding:6px 0}
+.tab{padding:11px 8px;border-radius:var(--radius-sm);border:1px solid var(--border);background:rgba(255,255,255,.02);color:var(--text2);font-size:13px;font-weight:700;cursor:pointer;transition:all .15s}
+.tab:hover{border-color:rgba(124,90,240,.4)}
+.tab.active{background:linear-gradient(135deg,rgba(124,90,240,.28),rgba(236,72,153,.18));border-color:#a78bfa;color:#fff;box-shadow:0 0 14px rgba(124,90,240,.25)}
+.tab-panel{display:none}
+.tab-panel.active{display:block;animation:fadeIn .2s ease}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.tab-hint{font-size:11px;color:var(--text3);text-align:center;margin-top:14px;line-height:1.6;padding:10px;border:1px dashed var(--border);border-radius:var(--radius-sm)}
 .status-light .sl-dot{width:11px;height:11px;border-radius:50%;flex-shrink:0}
 .status-light .sl-text{font-size:13px;font-weight:700}
 .status-light .sl-sub{font-size:11px;opacity:.7;margin-left:auto}
@@ -583,15 +592,13 @@ async function analyzeSelected(){
     const c=pred.control;
     const pctI=v=>Math.round(v*100);
     const mWinner=(c.homeWin>=c.draw&&c.homeWin>=c.awayWin)?m.home:(c.awayWin>=c.draw?m.away:'平局');
-    const predBlock=renderPrediction(m,pred,mWinner);
     const dataHTML=renderDataSections(m,hs,as,hp,ap,h2hFin);
+    const predBlock=renderPrediction(m,pred,mWinner,dataHTML);
     // 提供配注系統所需資料（大小分機率 + 前三波膽）
     stakeData={overProb:c.over25,recommend:pred.overUnder,top3:c.top.slice(0,3).map(s=>({score:`${s.h}-${s.a}`,prob:s.p}))};
 
-    // 先畫「模型預測 + 真實數據」，AI 觀點顯示載入中（即使 AI 掛掉，預測也已完成）
-    rc.innerHTML=predBlock
-      +'<div id="ai-section"><div class="data-section"><div class="data-section-title">🤖 AI 觀點</div><div class="loading-state" style="padding:20px"><div class="spinner"></div><div>Claude 上網查賽前情報並解讀中...</div><div style="font-size:11px;color:var(--text3);margin-top:6px">(含網路搜尋，約需 10～30 秒)</div></div></div></div>'
-      +dataHTML;
+    // 一次畫好三頁籤（AI 觀點在「數據」頁載入中）
+    rc.innerHTML=predBlock;
     updateStake();
 
     // 組裝 prompt：把雙劇本模型結果與真實數字交給 AI 解讀
@@ -659,11 +666,8 @@ function setStatusLight(active){
     : '<span class="sl-dot"></span><span class="sl-text">歷史數據模擬中</span><span class="sl-sub">尚未套用臨場校正</span>';
 }
 
-// 大結論 + 勝平負 + 雙劇本（會隨臨場校正即時重算）
-function pvHead(m,pred,mWinner){
-  const c=pred.control, pct=v=>Math.round(v*100);
-  const hw=pct(c.homeWin),dw=pct(c.draw),aw=pct(c.awayWin);
-  const scenAp=(c.top.find(s=>s.h===pred.scenA.h&&s.a===pred.scenA.a)||{}).p;
+// 大結論（結論頁；隨臨場校正即時重算）
+function pvVerdict(m,pred,mWinner){
   const badges=[pred.useOpener?'<span class="adj-badge">大賽首戰停利</span>':'',pred.useDilution?'<span class="adj-badge">含金量壓制</span>':'',pred.liveActive?'<span class="adj-badge live">臨場校正</span>':''].filter(Boolean).join('')||'<span class="adj-badge off">未套用修正</span>';
   return `
     <div class="verdict">
@@ -674,7 +678,15 @@ function pvHead(m,pred,mWinner){
       </div>
       <div class="verdict-ou">大小分推薦 · <b>${pred.overUnder==='over'?'大分 (Over 2.5)':'小分 (Under 2.5)'}</b></div>
     </div>
-    <div class="badge-row">${badges}</div>
+    <div class="badge-row">${badges}</div>`;
+}
+
+// 勝負機率 + 雙劇本（推演頁；隨臨場校正即時重算）
+function pvAnalysis(m,pred){
+  const c=pred.control, pct=v=>Math.round(v*100);
+  const hw=pct(c.homeWin),dw=pct(c.draw),aw=pct(c.awayWin);
+  const scenAp=(c.top.find(s=>s.h===pred.scenA.h&&s.a===pred.scenA.a)||{}).p;
+  return `
     <div class="prob-title">勝負機率（卜瓦松模型 · 已修正）</div>
     <div class="prob-row"><div class="prob-label" title="${tw(m.home)}">${tw(m.home)}</div><div class="prob-track"><div class="prob-fill home" style="width:${hw}%"></div></div><div class="prob-pct">${hw}%</div></div>
     <div class="prob-row"><div class="prob-label">平局</div><div class="prob-track"><div class="prob-fill draw" style="width:${dw}%"></div></div><div class="prob-pct">${dw}%</div></div>
@@ -703,7 +715,7 @@ function pvScores(m,pred){
     </div>`;
 }
 
-// 臨場校正面板（穩定，不隨重算重繪；勾選觸發 recomputePred）
+// 臨場校正面板（推演頁；勾選觸發 recomputePred）
 function livePanelHTML(){
   return `<div class="data-section"><div class="data-section-title">📡 臨場校正（賽前手動勾選）</div>
     <div class="live-panel">
@@ -711,9 +723,16 @@ function livePanelHTML(){
       <label class="live-row"><input type="checkbox" id="live-odds" onchange="recomputePred()"><span><b>盤口大資金湧入大球</b><br><span class="live-hint">大球賠率暴跌 → 調降控制流、提高大分權重防翻車</span></span></label>
       <label class="live-row"><input type="checkbox" id="live-group" onchange="recomputePred()"><span><b>小組賽第一輪（搶淨勝球）</b><br><span class="live-hint">強隊刷淨勝球意願高 → 降低 1-0 養生停利機率</span></span></label>
     </div>
-    <button class="odds-btn" onclick="fetchOddsCompare()">🎲 抓取 Pinnacle 盤口並比對（約耗 2 次額度）</button>
+    <div class="data-note">官方首發資料源仍缺，故首發採手動勾選。「盤口湧入大球」可在結論頁按🎲自動偵測，或在此手動勾。</div>
+  </div>`;
+}
+
+// 盤口比對（結論頁；按鈕觸發）
+function oddsCompareHTML(){
+  return `<div class="data-section"><div class="data-section-title">🎲 盤口比對（Pinnacle）</div>
+    <button class="odds-btn" onclick="fetchOddsCompare()">抓取 Pinnacle 盤口並比對（約耗 2 次額度）</button>
     <div id="odds-status" class="odds-status"></div>
-    <div class="data-note">官方首發資料源仍缺，故首發採手動勾選；盤口改為「按鈕觸發」自動比對 Pinnacle 大小分隱含機率，避免每次分析都消耗額度。</div>
+    <div class="data-note">比對市場「大小分」隱含機率與本模型；市場明顯偏大球時自動套用修正並切換狀態燈。</div>
   </div>`;
 }
 
@@ -743,14 +762,41 @@ function stakeSectionHTML(){
     </div>`;
 }
 
-// 組裝完整預測區（含可重算容器 pv-head / pv-scores 與穩定面板）
-function renderPrediction(m,pred,mWinner){
+// 組裝完整預測區（三頁籤：結論／推演／數據）
+function renderPrediction(m,pred,mWinner,dataHTML){
+  const aiLoading='<div id="ai-section"><div class="data-section"><div class="data-section-title">🤖 AI 觀點</div><div class="loading-state" style="padding:20px"><div class="spinner"></div><div>Claude 上網查賽前情報並解讀中...</div><div style="font-size:11px;color:var(--text3);margin-top:6px">(含網路搜尋，約需 10～30 秒)</div></div></div></div>';
   return `
     <div id="status-light" class="status-light hist"><span class="sl-dot"></span><span class="sl-text">歷史數據模擬中</span><span class="sl-sub">尚未套用臨場校正</span></div>
-    <div id="pv-head">${pvHead(m,pred,mWinner)}</div>
-    ${livePanelHTML()}
-    ${stakeSectionHTML()}
-    <div id="pv-scores">${pvScores(m,pred)}</div>`;
+    <div class="tabs">
+      <button class="tab active" id="tab-btn-0" onclick="showTab(0)">📊 結論</button>
+      <button class="tab" id="tab-btn-1" onclick="showTab(1)">🎯 推演</button>
+      <button class="tab" id="tab-btn-2" onclick="showTab(2)">📚 數據</button>
+    </div>
+    <div class="tab-panel active" id="tab-0">
+      <div id="pv-verdict">${pvVerdict(m,pred,mWinner)}</div>
+      ${oddsCompareHTML()}
+      ${stakeSectionHTML()}
+      <div class="tab-hint">想看推演細節與臨場校正 → 點上方「🎯 推演」；想看攻守數據與 AI 情報 → 點「📚 數據」</div>
+    </div>
+    <div class="tab-panel" id="tab-1">
+      <div id="pv-analysis">${pvAnalysis(m,pred)}</div>
+      ${livePanelHTML()}
+      <div id="pv-scores">${pvScores(m,pred)}</div>
+    </div>
+    <div class="tab-panel" id="tab-2">
+      ${aiLoading}
+      ${dataHTML}
+    </div>`;
+}
+// 頁籤切換
+function showTab(n){
+  for(let i=0;i<3;i++){
+    const p=document.getElementById('tab-'+i), b=document.getElementById('tab-btn-'+i);
+    if(p)p.classList.toggle('active',i===n);
+    if(b)b.classList.toggle('active',i===n);
+  }
+  const rc=document.getElementById('result-card')||document.querySelector('.result-card');
+  if(rc&&rc.scrollIntoView)rc.scrollIntoView({behavior:'smooth',block:'start'});
 }
 
 // 手風琴展開/收合
@@ -773,7 +819,8 @@ function recomputePred(){
   predCtx.pred=pred;
   const c=pred.control;
   const mWinner=(c.homeWin>=c.draw&&c.homeWin>=c.awayWin)?m.home:(c.awayWin>=c.draw?m.away:'平局');
-  const head=document.getElementById('pv-head'); if(head)head.innerHTML=pvHead(m,pred,mWinner);
+  const v=document.getElementById('pv-verdict'); if(v)v.innerHTML=pvVerdict(m,pred,mWinner);
+  const an=document.getElementById('pv-analysis'); if(an)an.innerHTML=pvAnalysis(m,pred);
   const sc=document.getElementById('pv-scores'); if(sc)sc.innerHTML=pvScores(m,pred);
   stakeData={overProb:c.over25,recommend:pred.overUnder,top3:c.top.slice(0,3).map(s=>({score:`${s.h}-${s.a}`,prob:s.p}))};
   setStatusLight(pred.liveActive);
