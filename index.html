@@ -197,6 +197,11 @@ select:focus,input:focus{border-color:var(--accent)}
 .verdict-label{font-size:11px;color:var(--text3);margin-bottom:4px;letter-spacing:.05em}
 .verdict-winner{font-size:26px;font-weight:800;color:#fff;line-height:1.1;word-break:break-word}
 .verdict-score{font-size:30px;font-weight:800;color:#c4a8ff;letter-spacing:2px;line-height:1.1}
+.verdict-score.dim{opacity:.45}
+.verdict-conf{margin-top:10px;font-size:12px;line-height:1.5;text-align:center;padding:7px 10px;border-radius:var(--radius-sm)}
+.verdict-conf.high{color:#6ee7b7;background:rgba(52,211,153,.08)}
+.verdict-conf.mid{color:#fbbf73;background:rgba(245,166,35,.08)}
+.verdict-conf.low{color:#fca5a5;background:rgba(248,113,113,.1);border:1px solid rgba(248,113,113,.3)}
 .verdict-ou{text-align:center;margin-top:12px;font-size:13px;color:var(--text2)}
 .verdict-ou b{color:#fff}
 .badge-row{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:14px}
@@ -676,14 +681,24 @@ function setStatusLight(active){
 // 大結論（結論頁；隨臨場校正即時重算）
 function pvVerdict(m,pred,mWinner){
   const badges=[pred.useOpener?'<span class="adj-badge">大賽首戰停利</span>':'',pred.useDilution?'<span class="adj-badge">含金量壓制</span>':'',pred.liveActive?'<span class="adj-badge live">臨場校正</span>':''].filter(Boolean).join('')||'<span class="adj-badge off">未套用修正</span>';
+  // 主推比分的單格機率 → 信心度
+  const scenAp=((pred.control.top.find(s=>s.h===pred.scenA.h&&s.a===pred.scenA.a)||{}).p)||0;
+  const ap=Math.round(scenAp*100);
+  const conf=scenAp>=0.18?'high':scenAp>=0.10?'mid':'low';
+  const confTxt=conf==='high'
+    ? `🟢 高信心 · 主推比分機率 ${ap}%`
+    : conf==='mid'
+      ? `🟡 中信心 · 主推比分機率僅 ${ap}%，比分僅供參考`
+      : `🔴 低信心 · 此場比分發散（最高僅 ${ap}%），建議以大小分盤為主，勿重壓單一波膽`;
   return `
     <div class="verdict">
       <div class="verdict-grid">
         <div class="verdict-col"><div class="verdict-label">預測勝者</div><div class="verdict-winner">${tw(mWinner)}</div></div>
         <div class="verdict-sep"></div>
-        <div class="verdict-col"><div class="verdict-label">主推比分</div><div class="verdict-score">${pred.scenA.h} - ${pred.scenA.a}</div></div>
+        <div class="verdict-col"><div class="verdict-label">主推比分</div><div class="verdict-score ${conf==='low'?'dim':''}">${pred.scenA.h} - ${pred.scenA.a}</div></div>
       </div>
       <div class="verdict-ou">大小分推薦 · <b>${pred.overUnder==='over'?'大分 (Over 2.5)':'小分 (Under 2.5)'}</b></div>
+      <div class="verdict-conf ${conf}">${confTxt}</div>
     </div>
     <div class="badge-row">${badges}</div>`;
 }
