@@ -803,13 +803,22 @@ async function resolveWcId(){
   if(oddsCache.wcId)return oddsCache.wcId;
   const ts=await oddsGet('/tournaments?sportId=10');
   const list=Array.isArray(ts)?ts:[];
-  const wc=list.find(t=>/world[-\s]?cup/i.test(t.tournamentName||'')||/world-cup/i.test(t.tournamentSlug||''));
+  const isWC=t=>/world[-\s]?cup/i.test(t.tournamentName||'')||/world-cup/i.test(t.tournamentSlug||'');
+  const isQual=t=>/qualif|qualification|資格/i.test((t.tournamentName||'')+(t.tournamentSlug||''));
+  const wcAll=list.filter(isWC);
+  // 排除資格賽/女足/U系列；優先名稱最短、含 2026、且不含 women/u-的正賽
+  const isJunk=t=>/women|female|u-?1[5-9]|u-?2[0-3]|youth|futsal|beach/i.test((t.tournamentName||'')+(t.tournamentSlug||''));
+  let cands=wcAll.filter(t=>!isQual(t)&&!isJunk(t));
+  // 優先含 2026
+  let wc=cands.find(t=>/2026/.test((t.tournamentName||'')+(t.tournamentSlug||'')))
+        || cands.sort((a,b)=>((a.tournamentName||'').length-(b.tournamentName||'').length))[0]
+        || null;
+  console.log('[OddsPapi] 所有 World Cup 賽事：',wcAll.map(t=>({id:t.tournamentId,name:t.tournamentName})));
   if(!wc){
-    console.log('[OddsPapi] 足球賽事清單（找不到世界盃）：',list.map(t=>({id:t.tournamentId,name:t.tournamentName,slug:t.tournamentSlug})));
-    throw new Error('在足球賽事清單中找不到「World Cup」，請看 Console 的賽事清單');
+    throw new Error('找不到世界盃「正賽」（清單裡只有資格賽/其他），請看 Console 的 World Cup 清單');
   }
-  if(wc.tournamentId==null)throw new Error('找到世界盃但無 tournamentId 欄位（結構不符）');
-  console.log('[OddsPapi] 世界盃 tournamentId =',wc.tournamentId,wc.tournamentName);
+  if(wc.tournamentId==null)throw new Error('找到世界盃但無 tournamentId 欄位');
+  console.log('[OddsPapi] 選定世界盃正賽 tournamentId =',wc.tournamentId,wc.tournamentName);
   oddsCache.wcId=wc.tournamentId;return wc.tournamentId;
 }
 // 從某場 odds 物件抽出大小分 2.5 的 Over/Under 賠率
