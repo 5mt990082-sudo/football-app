@@ -780,101 +780,96 @@ function recomputePred(){
   updateStake();
 }
 
-// ── OddsPapi 盤口比對（做法A：單次快照 vs 模型對照）──
-let oddsCache={wcId:null,fixtures:null,odds:null,at:0};
+// ── The Odds API 盤口比對 ──
+let oddsCache={data:null,at:0};
 async function oddsGet(path){
   const res=await fetch('/api/odds'+path);
   let data;
   try{ data=await res.json(); }
-  catch(_){ throw new Error('OddsPapi 回傳非 JSON（HTTP '+res.status+'）'); }
-  console.log('[OddsPapi]',path,'→ HTTP',res.status,data);
-  if(data&&data.error){
-    const msg=typeof data.error==='string'?data.error:JSON.stringify(data.error);
-    throw new Error(msg);
+  catch(_){ throw new Error('The Odds API 回傳非 JSON（HTTP '+res.status+'）'); }
+  console.log('[TheOddsAPI]',path,'→ HTTP',res.status,data);
+  if(!res.ok){
+    const msg=(data&&data.message)||JSON.stringify(data).slice(0,200);
+    throw new Error('The Odds API HTTP '+res.status+'：'+msg);
   }
-  if(data&&(data.message||data.code||data.statusCode)&&!Array.isArray(data)){
-    throw new Error('OddsPapi: '+JSON.stringify(data).slice(0,200));
-  }
-  if(!res.ok)throw new Error('OddsPapi HTTP '+res.status+'：'+JSON.stringify(data).slice(0,200));
   return data;
 }
 function normName(s){return (s||'').toLowerCase().replace(/[^a-z]/g,'');}
-async function resolveWcId(){
-  if(oddsCache.wcId)return oddsCache.wcId;
-  const ts=await oddsGet('/tournaments?sportId=10');
-  const list=Array.isArray(ts)?ts:[];
-  const isWC=t=>/world[-\s]?cup/i.test(t.tournamentName||'')||/world-cup/i.test(t.tournamentSlug||'');
-  const isQual=t=>/qualif|qualification|資格/i.test((t.tournamentName||'')+(t.tournamentSlug||''));
-  const wcAll=list.filter(isWC);
-  // 排除資格賽/女足/U系列；優先名稱最短、含 2026、且不含 women/u-的正賽
-  const isJunk=t=>/women|female|u-?1[5-9]|u-?2[0-3]|youth|futsal|beach/i.test((t.tournamentName||'')+(t.tournamentSlug||''));
-  let cands=wcAll.filter(t=>!isQual(t)&&!isJunk(t));
-  // 優先含 2026
-  let wc=cands.find(t=>/2026/.test((t.tournamentName||'')+(t.tournamentSlug||'')))
-        || cands.sort((a,b)=>((a.tournamentName||'').length-(b.tournamentName||'').length))[0]
-        || null;
-  console.log('[OddsPapi] 所有 World Cup 賽事：',wcAll.map(t=>({id:t.tournamentId,name:t.tournamentName})));
-  if(!wc){
-    throw new Error('找不到世界盃「正賽」（清單裡只有資格賽/其他），請看 Console 的 World Cup 清單');
-  }
-  if(wc.tournamentId==null)throw new Error('找到世界盃但無 tournamentId 欄位');
-  console.log('[OddsPapi] 選定世界盃正賽 tournamentId =',wc.tournamentId,wc.tournamentName);
-  oddsCache.wcId=wc.tournamentId;return wc.tournamentId;
-}
-// 從某場 odds 物件抽出大小分 2.5 的 Over/Under 賠率
-function extractOU25(fixtureOdds){
+
+// 從 The Odds API 抽出大小分 2.5 Over/Under 賠率
+function extractOU25(game){
   try{
-    const bk=fixtureOdds.bookmakerOdds&&fixtureOdds.bookmakerOdds.pinnacle;
-    const mks=bk&&bk.markets;if(!mks)return null;
-    for(const key of Object.keys(mks)){
-      const mkt=mks[key];
-      const isOU=key==='106'||mkt.marketId===106||/over.?under|total/i.test(mkt.marketType||mkt.marketName||'');
-      if(!isOU)continue;
-      const hcap=mkt.handicap!=null?Number(mkt.handicap):null;
-      if(hcap!=null&&Math.abs(hcap-2.5)>0.01)continue; // 只要 2.5 那條線
-      const o=mkt.outcomes&&(mkt.outcomes['106']||mkt.outcomes['Over']);
-      const u=mkt.outcomes&&(mkt.outcomes['107']||mkt.outcomes['Under']);
-      const op=o&&o.players&&o.players['0']&&o.players['0'].price;
-      const up=u&&u.players&&u.players['0']&&u.players['0'].price;
-      if(op&&up)return{over:op,under:up,hcap};
+    for(const bk of (game.bookmakers||[])){
+      if(!/pinnacle/i.test(bk.key||bk.title||''))continue;
+      for(const mkt of (bk.markets||[])){
+        if(mkt.key!=='totals')continue;
+        let over=null,under=null;
+        for(const o of (mkt.outcomes||[])){
+          if(Math.abs((o.point||0)-2.5)>0.01)continue;
+          if(/over/i.test(o.name))over=o.price;
+          if(/under/i.test(o.name))under=o.price;
+        }
+        if(over&&under)return{over,under,hcap:2.5};
+      }
+    }
+    // fallback: 任何莊家
+    for(const bk of (game.bookmakers||[])){
+      for(const mkt of (bk.markets||[])){
+        if(mkt.key!=='totals')continue;
+        let over=null,under=null;
+        for(const o of (mkt.outcomes||[])){
+          if(Math.abs((o.point||0)-2.5)>0.01)continue;
+          if(/over/i.test(o.name))over=o.price;
+          if(/under/i.test(o.name))under=o.price;
+        }
+        if(over&&under)return{over,under,hcap:2.5};
+      }
     }
   }catch(e){}
   return null;
 }
+
 async function fetchOddsCompare(){
   if(!predCtx)return;
   const m=predCtx.m, modelOver=predCtx.pred.control.over25;
   const el=document.getElementById('odds-status');
   const set=(t,cls)=>{if(el){el.className='odds-status '+(cls||'');el.innerHTML=t;}};
-  set('🎲 連線 OddsPapi、比對盤口中…','load');
+  set('🎲 連線 The Odds API、比對 Pinnacle 盤口中…','load');
   try{
-    const wcId=await resolveWcId();
-    if(!oddsCache.fixtures||Date.now()-oddsCache.at>300000){
-      // fixtures 只帶 tournamentId（文件說可單獨使用），避免參數組合造成 404
-      oddsCache.fixtures=await oddsGet(`/fixtures?tournamentId=${wcId}`);
-      oddsCache.odds=await oddsGet(`/odds-by-tournaments?bookmaker=pinnacle&tournamentIds=${wcId}`);
+    // The Odds API：soccer_fifa_world_cup 是世界盃的 sport key
+    // regions=eu 取歐洲盤（含 Pinnacle），markets=totals 只取大小分
+    if(!oddsCache.data||Date.now()-oddsCache.at>300000){
+      oddsCache.data=await oddsGet('/sports/soccer_fifa_world_cup/odds?regions=eu&markets=h2h,totals&bookmakers=pinnacle');
       oddsCache.at=Date.now();
+      console.log('[TheOddsAPI] 取得場次數：',oddsCache.data.length);
     }
-    const fx=oddsCache.fixtures||[];
+    const games=oddsCache.data||[];
     const h=normName(m.home), a=normName(m.away);
     const tSel=new Date(m.date).getTime();
     let best=null,bestDt=1/0;
-    for(const f of fx){
-      const p1=normName(f.participant1Name)+normName(f.participant1ShortName);
-      const p2=normName(f.participant2Name)+normName(f.participant2ShortName);
-      const match=(p1.includes(h)&&p2.includes(a))||(p1.includes(a)&&p2.includes(h));
-      if(!match)continue;
-      const dt=Math.abs(new Date(f.startTime).getTime()-tSel);
-      if(dt<bestDt){bestDt=dt;best=f;}
+    for(const g of games){
+      const ht=normName(g.home_team), at2=normName(g.away_team);
+      const match=(ht.includes(h)||h.includes(ht))&&(at2.includes(a)||a.includes(at2));
+      const matchRev=(ht.includes(a)||a.includes(ht))&&(at2.includes(h)||h.includes(at2));
+      if(!match&&!matchRev)continue;
+      const dt=Math.abs(new Date(g.commence_time).getTime()-tSel);
+      if(dt<bestDt){bestDt=dt;best=g;}
     }
-    if(!best){set('🎲 在 OddsPapi 找不到對應的世界盃場次（隊名或時間對不上）','warn');return;}
-    const oddsArr=oddsCache.odds||[];
-    const fo=oddsArr.find(x=>x.fixtureId===best.fixtureId);
-    if(!fo){set('🎲 找到場次但無 Pinnacle 賠率資料','warn');return;}
-    console.log('[OddsPapi 原始賠率物件]',fo);
-    const ou=extractOU25(fo);
-    if(!ou){set('🎲 已連到盤口，但解析不到「大小分 2.5」賠率。請打開瀏覽器 Console 複製 [OddsPapi 原始賠率物件] 給我微調。','warn');return;}
-    const impliedOver=(1/ou.over)/((1/ou.over)+(1/ou.under));
+    if(!best){
+      set('🎲 找不到對應世界盃場次（The Odds API 可能尚未開市，或隊名對不上）','warn');
+      console.log('[TheOddsAPI] 現有場次：',games.map(g=>g.home_team+' vs '+g.away_team));
+      return;
+    }
+    console.log('[TheOddsAPI 原始賠率物件]',best);
+    const ou=extractOU25(best);
+    if(!ou){
+      set('🎲 已連到盤口，但 Pinnacle 尚未開出大小分 2.5 盤口（可能開賽前才出）','warn');
+      return;
+    }
+    // 美式賠率轉換成隱含機率
+    const toProb=p=>p>0?(100/(p+100)):((-p)/((-p)+100));
+    const overProb=toProb(ou.over), underProb=toProb(ou.under);
+    const impliedOver=overProb/(overProb+underProb); // 去除莊家抽水
     const diff=impliedOver-modelOver;
     const mk=Math.round(impliedOver*100), mm=Math.round(modelOver*100);
     if(diff>=0.10){
@@ -886,7 +881,7 @@ async function fetchOddsCompare(){
     }else{
       set(`🎲 Pinnacle 大分隱含 ${mk}% vs 模型 ${mm}%：差距不足 ±10%，未觸發修正`,'ok');
     }
-  }catch(e){set('🎲 盤口比對失敗：'+(e&&e.message?e.message:String(e))+'（可能未設定 ODDSPAPI_KEY、端點未開放，或額度用盡）','warn');}
+  }catch(e){set('🎲 盤口比對失敗：'+(e&&e.message?e.message:String(e))+'（請確認 Railway 已設定 THEODDS_KEY 環境變數）','warn');}
 }
 
 // ── 智能配注：狀態與演算法 ──
