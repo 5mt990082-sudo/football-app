@@ -819,36 +819,30 @@ function teamsMatch(x,y){
 }
 
 // 從 The Odds API 抽出大小分 2.5 Over/Under 賠率
-function extractOU25(game){
-  try{
+// 取 Pinnacle（或任一莊家）大小分主盤：回傳實際線、Over/Under 小數賠率
+function extractOU(game){
+  const pickFrom=onlyPinnacle=>{
     for(const bk of (game.bookmakers||[])){
-      if(!/pinnacle/i.test(bk.key||bk.title||''))continue;
+      if(onlyPinnacle&&!/pinnacle/i.test(bk.key||bk.title||''))continue;
       for(const mkt of (bk.markets||[])){
         if(mkt.key!=='totals')continue;
-        let over=null,under=null;
+        let over=null,under=null,line=null;
         for(const o of (mkt.outcomes||[])){
-          if(Math.abs((o.point||0)-2.5)>0.01)continue;
-          if(/over/i.test(o.name))over=o.price;
+          if(/over/i.test(o.name)){over=o.price;line=o.point;}
           if(/under/i.test(o.name))under=o.price;
         }
-        if(over&&under)return{over,under,hcap:2.5};
+        if(over&&under&&line!=null)return{over,under,line,book:bk.title||bk.key};
       }
     }
-    // fallback: 任何莊家
-    for(const bk of (game.bookmakers||[])){
-      for(const mkt of (bk.markets||[])){
-        if(mkt.key!=='totals')continue;
-        let over=null,under=null;
-        for(const o of (mkt.outcomes||[])){
-          if(Math.abs((o.point||0)-2.5)>0.01)continue;
-          if(/over/i.test(o.name))over=o.price;
-          if(/under/i.test(o.name))under=o.price;
-        }
-        if(over&&under)return{over,under,hcap:2.5};
-      }
-    }
-  }catch(e){}
-  return null;
+    return null;
+  };
+  try{ return pickFrom(true)||pickFrom(false); }catch(e){ return null; }
+}
+// 用模型 λ 算「總進球 > line」的機率（與盤口同一條線比較）
+function modelOverProb(hL,aL,line){
+  const need=Math.floor(line)+1; let p=0;
+  for(let i=0;i<=10;i++)for(let j=0;j<=10;j++){ if(i+j>=need) p+=poissonP(i,hL)*poissonP(j,aL); }
+  return p;
 }
 
 async function fetchOddsCompare(){
@@ -882,25 +876,27 @@ async function fetchOddsCompare(){
       return;
     }
     console.log('[TheOddsAPI 原始賠率物件]',best);
-    const ou=extractOU25(best);
+    const ou=extractOU(best);
     if(!ou){
-      set('🎲 已連到盤口，但 Pinnacle 尚未開出大小分 2.5 盤口（可能開賽前才出）','warn');
+      set('🎲 已連到盤口，但這場 Pinnacle 尚未開出大小分（totals）盤口（可能開賽前才出，或換一場試試）','warn');
       return;
     }
-    // 美式賠率轉換成隱含機率
-    const toProb=p=>p>0?(100/(p+100)):((-p)/((-p)+100));
-    const overProb=toProb(ou.over), underProb=toProb(ou.under);
-    const impliedOver=overProb/(overProb+underProb); // 去除莊家抽水
-    const diff=impliedOver-modelOver;
-    const mk=Math.round(impliedOver*100), mm=Math.round(modelOver*100);
+    // The Odds API 預設為「小數賠率」：隱含機率 = 1/賠率，再去除莊家抽水
+    const impliedOver=(1/ou.over)/((1/ou.over)+(1/ou.under));
+    // 模型用「同一條盤口線」算大分機率，蘋果對蘋果
+    const c=predCtx.pred.control;
+    const modelOverLine=modelOverProb(c.hL,c.aL,ou.line);
+    const diff=impliedOver-modelOverLine;
+    const mk=Math.round(impliedOver*100), mm=Math.round(modelOverLine*100);
+    const lineTxt=`大分線 ${ou.line}（${ou.book}）`;
     if(diff>=0.10){
       const box=document.getElementById('live-odds');
       if(box&&!box.checked){box.checked=true;recomputePred();}
-      set(`🎲 Pinnacle 大分隱含 ${mk}% ＞ 模型 ${mm}%（+${Math.round(diff*100)}%）→ 已自動勾選「盤口湧入大球」`,'hit');
+      set(`🎲 ${lineTxt}：市場大分隱含 ${mk}% ＞ 模型 ${mm}%（+${Math.round(diff*100)}%）→ 已自動勾選「盤口湧入大球」`,'hit');
     }else if(diff<=-0.10){
-      set(`🎲 Pinnacle 大分隱含 ${mk}% ＜ 模型 ${mm}%：市場偏小分，維持控制流`,'ok');
+      set(`🎲 ${lineTxt}：市場大分隱含 ${mk}% ＜ 模型 ${mm}%，市場偏小分，維持控制流`,'ok');
     }else{
-      set(`🎲 Pinnacle 大分隱含 ${mk}% vs 模型 ${mm}%：差距不足 ±10%，未觸發修正`,'ok');
+      set(`🎲 ${lineTxt}：市場大分隱含 ${mk}% vs 模型 ${mm}%，差距不足 ±10%，未觸發修正`,'ok');
     }
   }catch(e){set('🎲 盤口比對失敗：'+(e&&e.message?e.message:String(e))+'（請確認 Railway 已設定 THEODDS_KEY 環境變數）','warn');}
 }
