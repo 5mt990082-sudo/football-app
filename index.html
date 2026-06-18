@@ -795,6 +795,28 @@ async function oddsGet(path){
   return data;
 }
 function normName(s){return (s||'').toLowerCase().replace(/[^a-z]/g,'');}
+// 國名別名對照：把兩家 API 不同拼法收斂成同一個 key
+const TEAM_ALIAS={
+  czechrepublic:'czech', czechia:'czech',
+  southkorea:'korea', korearepublic:'korea', republicofkorea:'korea',
+  ivorycoast:'ivory', cotedivoire:'ivory',
+  unitedstates:'usa', usa:'usa', unitedstatesofamerica:'usa',
+  unitedarabemirates:'uae', uae:'uae',
+  drcongo:'congo', congodr:'congo', democraticrepublicofthecongo:'congo', democraticrepublicofcongo:'congo',
+  bosniaandherzegovina:'bosnia', bosniaherzegovina:'bosnia',
+  capeverde:'capeverde', caboverde:'capeverde',
+  northmacedonia:'macedonia', republicofireland:'ireland'
+};
+function canonName(s){const n=normName(s);return TEAM_ALIAS[n]||n;}
+// 寬鬆隊名比對：別名相等 / 互相包含 / 共同前綴≥5
+function teamsMatch(x,y){
+  const a=canonName(x), b=canonName(y);
+  if(!a||!b)return false;
+  if(a===b)return true;
+  if(a.includes(b)||b.includes(a))return true;
+  const k=Math.min(a.length,b.length,6);
+  return k>=5 && a.slice(0,k)===b.slice(0,k);
+}
 
 // 從 The Odds API 抽出大小分 2.5 Over/Under 賠率
 function extractOU25(game){
@@ -844,19 +866,18 @@ async function fetchOddsCompare(){
       console.log('[TheOddsAPI] 取得場次數：',oddsCache.data.length);
     }
     const games=oddsCache.data||[];
-    const h=normName(m.home), a=normName(m.away);
     const tSel=new Date(m.date).getTime();
     let best=null,bestDt=1/0;
     for(const g of games){
-      const ht=normName(g.home_team), at2=normName(g.away_team);
-      const match=(ht.includes(h)||h.includes(ht))&&(at2.includes(a)||a.includes(at2));
-      const matchRev=(ht.includes(a)||a.includes(ht))&&(at2.includes(h)||h.includes(at2));
+      const match=teamsMatch(g.home_team,m.home)&&teamsMatch(g.away_team,m.away);
+      const matchRev=teamsMatch(g.home_team,m.away)&&teamsMatch(g.away_team,m.home);
       if(!match&&!matchRev)continue;
       const dt=Math.abs(new Date(g.commence_time).getTime()-tSel);
       if(dt<bestDt){bestDt=dt;best=g;}
     }
     if(!best){
-      set('🎲 找不到對應世界盃場次（The Odds API 可能尚未開市，或隊名對不上）','warn');
+      set('🎲 找不到對應世界盃場次（隊名對不上，請看 Console 的場次清單回報我）','warn');
+      console.log('[TheOddsAPI] 你選的場次：',m.home,'vs',m.away);
       console.log('[TheOddsAPI] 現有場次：',games.map(g=>g.home_team+' vs '+g.away_team));
       return;
     }
