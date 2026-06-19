@@ -551,13 +551,21 @@ function buildPrediction(m,hs,as,opts){
   if(live.control){ decayLead=true; }                                          // 強隊養生：啟動淨勝2球遞減
   if(live.flow){ hC*=1.15; aC*=1.15; }                                         // 戰術對流局：雙方×1.15
 
-  // ④ 既有臨場校正
-  const liveActive=!!(live.starXI||live.oddsOver||live.groupR1||live.bus||live.control||live.flow);
+  // ④ 小組賽首戰：依強弱差距自動「收/衝」
+  let groupStance='';
+  if(useOpener){
+    const ratio=Math.max(hC,aC)/Math.max(0.12,Math.min(hC,aC)); // 強弱差距
+    if(ratio>=2.2){ setFav(1.18); decayLead=false; groupStance='碾壓局→搶淨勝球(衝)'; }      // 懸殊→刷淨勝球
+    else if(ratio<=1.5){ decayLead=true; groupStance='勢均力敵→領先2球養生(收)'; }            // 接近→養生收
+  }
+
+  // ⑤ 既有臨場校正
+  const liveActive=!!(live.starXI||live.oddsOver||live.forceConserv||live.bus||live.control||live.flow);
   if(live.starXI){ setFav(1.25); }
   if(live.oddsOver){ hC*=1.15; aC*=1.15; }
-  if(live.groupR1){ setFav(1.18); decayLead=false; } // 搶淨勝球 → 關閉養生遞減
+  if(live.forceConserv){ decayLead=true; }  // 手動強制養生（覆蓋自動收/衝）
 
-  // ⑤ λ 上下限，避免連乘失真
+  // ⑥ λ 上下限，避免連乘失真
   hC=Math.min(5,Math.max(0.12,hC)); aC=Math.min(5,Math.max(0.12,aC));
 
   const control=poissonGrid(hC,aC,{decay:decayLead,favIsHome:homeFav,capFavGoals:capFavGoals});
@@ -577,7 +585,7 @@ function buildPrediction(m,hs,as,opts){
     : (chaos.top.find(s=>(s.h+s.a)>=3)||chaos.top[0]);
 
   return{control,chaos,scenA,scenB,favName,dogName,homeFav,useOpener,
-    live,liveActive,isOver,tac,tacNote,
+    live,liveActive,isOver,tac,tacNote,groupStance,
     overUnder:isOver?'over':'under'};
 }
 
@@ -757,7 +765,7 @@ function setStatusLight(active){
 
 // 大結論（結論頁；隨臨場校正即時重算）
 function pvVerdict(m,pred,mWinner){
-  const badges=[pred.useOpener?'<span class="adj-badge">大賽首戰停利</span>':'',pred.tacNote?'<span class="adj-badge">戰術相剋</span>':'',pred.liveActive?'<span class="adj-badge live">臨場校正</span>':''].filter(Boolean).join('')||'<span class="adj-badge off">未套用修正</span>';
+  const badges=[pred.useOpener?'<span class="adj-badge">大賽首戰停利</span>':'',pred.tacNote?'<span class="adj-badge">戰術相剋</span>':'',pred.groupStance?`<span class="adj-badge">${pred.groupStance}</span>`:'',pred.liveActive?'<span class="adj-badge live">臨場校正</span>':''].filter(Boolean).join('')||'<span class="adj-badge off">未套用修正</span>';
   // 主推比分的單格機率 → 信心度
   const scenAp=((pred.control.top.find(s=>s.h===pred.scenA.h&&s.a===pred.scenA.a)||{}).p)||0;
   const ap=Math.round(scenAp*100);
@@ -829,7 +837,7 @@ function livePanelHTML(){
       <label class="live-row"><input type="checkbox" id="live-flow" onchange="recomputePred()"><span><b>戰術對流局（大開大合）</b><br><span class="live-hint">主客雙方預期進球同時 ×1.15，往大分拉</span></span></label>
       <label class="live-row"><input type="checkbox" id="live-star" onchange="recomputePred()"><span><b>強隊擺全主力先發</b><br><span class="live-hint">核心前鋒/邊鋒全上 → 火力釋放 ×1.25</span></span></label>
       <label class="live-row"><input type="checkbox" id="live-odds" onchange="recomputePred()"><span><b>盤口大資金湧入大球</b><br><span class="live-hint">大球賠率暴跌 → 整體上修、提高大分權重</span></span></label>
-      <label class="live-row"><input type="checkbox" id="live-group" onchange="recomputePred()"><span><b>小組賽第一輪（搶淨勝球）</b><br><span class="live-hint">強隊刷淨勝球意願高 → 關閉養生遞減、提高火力</span></span></label>
+      <label class="live-row"><input type="checkbox" id="live-forceconserv" onchange="recomputePred()"><span><b>強制養生（手動覆蓋）</b><br><span class="live-hint">小組賽首戰系統會依強弱自動決定收/衝；勾此強制啟動領先2球養生遞減</span></span></label>
     </div>
     <div class="data-note">戰術風格由 AI 自動判斷並套用相剋矩陣；上方勾選為手動覆蓋，勾了即時重算、頂部狀態燈轉「已校正」。</div>
   </div>`;
@@ -930,7 +938,7 @@ function recomputePred(){
   if(!predCtx)return;
   const {m,hs,as,opts}=predCtx;
   const chk=id=>{const e=document.getElementById(id);return !!(e&&e.checked);};
-  opts.live={starXI:chk('live-star'),oddsOver:chk('live-odds'),groupR1:chk('live-group'),
+  opts.live={starXI:chk('live-star'),oddsOver:chk('live-odds'),forceConserv:chk('live-forceconserv'),
              bus:chk('live-bus'),control:chk('live-control'),flow:chk('live-flow')};
   const pred=buildPrediction(m,hs,as,opts);
   predCtx.pred=pred;
