@@ -212,6 +212,8 @@ select:focus,input:focus{border-color:var(--accent)}
 .live-row:has(input:checked){border-color:rgba(52,211,153,.45);background:rgba(52,211,153,.07)}
 .live-row input{width:20px;height:20px;margin-top:1px;flex-shrink:0;cursor:pointer;accent-color:#34d399}
 .live-hint{font-size:11px;color:var(--text3);font-weight:400}
+.tac-detected{font-size:12px;color:var(--text2);background:rgba(124,90,240,.08);border:1px solid rgba(124,90,240,.25);border-radius:var(--radius-sm);padding:9px 11px;margin-bottom:10px;line-height:1.5}
+.tac-detected b{color:#c4a8ff}
 /* 手風琴 */
 .acc-body{max-height:0;overflow:hidden;transition:max-height .3s ease}
 .acc-body.open{max-height:600px}
@@ -323,7 +325,7 @@ select:focus,input:focus{border-color:var(--accent)}
       <button class="btn-analyze" id="analyze-btn" onclick="analyzeSelected()" disabled>✦ AI 分析選取場次</button>
       <div class="adj-toggles">
         <label class="adj-toggle"><input type="checkbox" id="adj-opener" checked> 大賽首戰修正（強隊領先後養生、比分傾向控制流）</label>
-        <label class="adj-toggle"><input type="checkbox" id="adj-dilution" checked> 含金量壓制（弱隊面對頂級強權時壓低反擊破門率）</label>
+        <div class="adj-toggle" style="opacity:.7">🎯 戰術相剋矩陣已內建（由 AI 自動判斷雙方戰術風格，亦可在分析後手動勾選覆蓋）</div>
       </div>
     </div>
     <div class="info-box">
@@ -444,8 +446,37 @@ const ADJ={
 };
 // B劇本：弱隊在對攻中也獲得機會的上修係數
 const CHAOS_DOG_BOOST=1.25;
-// 頂級傳控/高強中場球隊（弱隊面對它們時觸發含金量壓制）
+// 頂級傳控/高強中場球隊（作為 AI 未判斷時的風格預設輔助）
 const ELITE=['France','Spain','England','Brazil','Argentina','Germany','Portugal','Netherlands','Italy','Belgium'];
+
+// ── 戰術相剋矩陣（取代舊「含金量壓制」）──
+// tactical_style: attack 進攻流 / bus 擺大巴 / counter 防守反擊 / control 控球養生 / physical 肉搏絞殺
+// lead_behavior: keep_attacking 領先續攻 / conservative 領先轉保守
+const LEAD_DECAY=0.55; // 控球養生：淨勝≥2後，每多1球的衰減係數
+// 回傳 {favMul,dogMul,capFav,decay,note}
+function tacticalAdj(favStyle,dogStyle,favLead){
+  const A='attack',BUS='bus',CT='counter',CO='control',PH='physical';
+  let favMul=1,dogMul=1,capFav=false,decay=false,note='';
+  if(favStyle===A&&(dogStyle===BUS||dogStyle===PH)){
+    favMul=0.88; dogMul=0.72; capFav=true;
+    note='進攻流 × '+(dogStyle===BUS?'擺大巴':'肉搏')+'：大球降溫、強隊封頂';
+  }else if(favStyle===A&&dogStyle===CT){
+    favMul=1.08; dogMul=1.12;
+    note='進攻流 × 防守反擊：互攻、大球升溫';
+  }else if(favStyle===CO&&(dogStyle===BUS||dogStyle===PH)){
+    favMul=0.90; dogMul=0.78; capFav=true;
+    note='控球流 × 大巴：悶戰低分';
+  }else if(favStyle===PH&&dogStyle===PH){
+    favMul=0.85; dogMul=0.85;
+    note='雙肉搏：節奏破碎、低分';
+  }else if(favStyle===CO&&dogStyle===A){
+    favMul=0.95; dogMul=1.05;
+    note='控球流 × 進攻流：對手仍有威脅';
+  }
+  // 控球養生(領先轉保守) → 啟動淨勝2球後遞減
+  if(favLead==='conservative'||favStyle===CO) decay=true;
+  return {favMul,dogMul,capFav,decay,note};
+}
 
 // 由場均進失球推算原始預期進球
 function rawLambdas(hs,as){
@@ -457,15 +488,28 @@ function rawLambdas(hs,as){
 }
 
 // 給定兩隊 λ，算出完整比分機率網格
-function poissonGrid(hL,aL){
+function poissonGrid(hL,aL,opt){
+  opt=opt||{};
   hL=Math.min(5,Math.max(0.12,hL)); aL=Math.min(5,Math.max(0.12,aL));
-  const MAX=8;let homeWin=0,draw=0,awayWin=0,btts=0,over25=0;const scores=[];
+  const MAX=8;const scores=[];
   for(let i=0;i<=MAX;i++)for(let j=0;j<=MAX;j++){
-    const p=poissonP(i,hL)*poissonP(j,aL);
-    if(i>j)homeWin+=p;else if(i===j)draw+=p;else awayWin+=p;
-    if(i>0&&j>0)btts+=p;
-    if(i+j>=3)over25+=p;
+    let p=poissonP(i,hL)*poissonP(j,aL);
+    if(opt.decay){ // 控球養生：強隊淨勝≥2後，超出部分指數遞減
+      const favG=opt.favIsHome?i:j, dogG=opt.favIsHome?j:i;
+      const extra=favG-(dogG+2);
+      if(extra>0) p*=Math.pow(LEAD_DECAY,extra);
+    }
+    if(opt.capFavGoals!=null){ // 封頂：強隊進球超過上限的比分大幅壓低
+      const favG=opt.favIsHome?i:j;
+      if(favG>opt.capFavGoals) p*=0.25;
+    }
     scores.push({h:i,a:j,p});
+  }
+  let homeWin=0,draw=0,awayWin=0,btts=0,over25=0;
+  for(const s of scores){
+    if(s.h>s.a)homeWin+=s.p;else if(s.h===s.a)draw+=s.p;else awayWin+=s.p;
+    if(s.h>0&&s.a>0)btts+=s.p;
+    if(s.h+s.a>=3)over25+=s.p;
   }
   const tot=(homeWin+draw+awayWin)||1;
   homeWin/=tot;draw/=tot;awayWin/=tot;btts/=tot;over25/=tot;
@@ -478,43 +522,62 @@ function buildPrediction(m,hs,as,opts){
   const raw=rawLambdas(hs,as);
   const homeFav=raw.hL>=raw.aL;
   const favName=homeFav?m.home:m.away, dogName=homeFav?m.away:m.home;
-  const favElite=ELITE.includes(favName);
-  const useDilution=opts.dilution&&favElite;   // 弱隊面對 elite 才壓制
   const useOpener=opts.opener;
+  const tac=opts.tactics||{};        // {favStyle,dogStyle,favLead} 由 AI 判斷
+  const live=opts.live||{};          // 手動勾選
 
-  // 【A 劇本：大賽控制流】套用含金量壓制 + 大賽首戰下調
   let hC=raw.hL, aC=raw.aL;
-  if(useDilution){ if(homeFav) aC*=ADJ.eliteSuppress; else hC*=ADJ.eliteSuppress; }
+  const setFav=(mul)=>{ if(homeFav)hC*=mul; else aC*=mul; };
+  const setDog=(mul)=>{ if(homeFav)aC*=mul; else hC*=mul; };
+
+  // ① 大賽首戰停利
   if(useOpener){
     if(homeFav){hC*=ADJ.openerFav; aC*=ADJ.openerDog;}
     else{aC*=ADJ.openerFav; hC*=ADJ.openerDog;}
   }
 
-  // ── 臨場衝擊權重層（半自動，賽前手動勾選）──
-  const live=opts.live||{};
-  const liveActive=!!(live.starXI||live.oddsOver||live.groupR1);
-  if(live.starXI){ if(homeFav)hC*=1.25; else aC*=1.25; }   // 強隊擺全主力 → 火力釋放
-  if(live.oddsOver){ hC*=1.15; aC*=1.15; }                 // 盤口資金湧入大球 → 整體上修、控制流降權
-  if(live.groupR1){ if(homeFav)hC*=1.18; else aC*=1.18; }  // 小組賽R1刷淨勝球 → 降低1-0養生
+  // ② 戰術相剋矩陣（取代含金量壓制）
+  let capFavGoals=null, decayLead=false, tacNote='';
+  if(tac.favStyle&&tac.dogStyle){
+    const t=tacticalAdj(tac.favStyle,tac.dogStyle,tac.favLead);
+    setFav(t.favMul); setDog(t.dogMul);
+    if(t.capFav) capFavGoals=2;
+    if(t.decay) decayLead=true;
+    tacNote=t.note;
+  }
 
-  const control=poissonGrid(hC,aC);
+  // ③ 手動戰術勾選（覆蓋/疊加）
+  if(live.bus){ setDog(0.55); capFavGoals=2; tacNote='手動：弱隊擺大巴'; }      // 客隊進球降至最低、主隊封頂2.5
+  if(live.control){ decayLead=true; }                                          // 強隊養生：啟動淨勝2球遞減
+  if(live.flow){ hC*=1.15; aC*=1.15; }                                         // 戰術對流局：雙方×1.15
 
-  // 【B 劇本：防翻車暴走流】強隊大幅上修、弱隊也獲得對攻機會（防線拉開）
+  // ④ 既有臨場校正
+  const liveActive=!!(live.starXI||live.oddsOver||live.groupR1||live.bus||live.control||live.flow);
+  if(live.starXI){ setFav(1.25); }
+  if(live.oddsOver){ hC*=1.15; aC*=1.15; }
+  if(live.groupR1){ setFav(1.18); decayLead=false; } // 搶淨勝球 → 關閉養生遞減
+
+  // ⑤ λ 上下限，避免連乘失真
+  hC=Math.min(5,Math.max(0.12,hC)); aC=Math.min(5,Math.max(0.12,aC));
+
+  const control=poissonGrid(hC,aC,{decay:decayLead,favIsHome:homeFav,capFavGoals:capFavGoals});
+
+  // 【B 劇本：防翻車暴走流】強隊大幅上修、弱隊也獲得對攻機會
   let hB=raw.hL, aB=raw.aL;
   if(homeFav){hB*=ADJ.chaosFavBoost; aB*=CHAOS_DOG_BOOST;} else {aB*=ADJ.chaosFavBoost; hB*=CHAOS_DOG_BOOST;}
   const chaos=poissonGrid(hB,aB);
 
-  // 主推比分(A劇本)跟著大小分推薦走，避免「推大分卻給低比分」的矛盾
+  // 主推比分(A劇本)跟著大小分推薦走
   const isOver=control.over25>=0.5;
   const scenA=isOver
-    ? (control.top.find(s=>(s.h+s.a)>=3)||control.top[0])   // 偏大分→對攻高比分
-    : (control.top.find(s=>(s.h+s.a)<=2)||control.top[0]);  // 偏小分→控制低比分
+    ? (control.top.find(s=>(s.h+s.a)>=3)||control.top[0])
+    : (control.top.find(s=>(s.h+s.a)<=2)||control.top[0]);
   const scenB=isOver
-    ? (control.top.find(s=>(s.h+s.a)<=2)||chaos.top[0])     // 防冷：萬一變控制低分
-    : (chaos.top.find(s=>(s.h+s.a)>=3)||chaos.top[0]);      // 防冷：暴走大比分
+    ? (control.top.find(s=>(s.h+s.a)<=2)||chaos.top[0])
+    : (chaos.top.find(s=>(s.h+s.a)>=3)||chaos.top[0]);
 
-  return{control,chaos,scenA,scenB,favName,dogName,homeFav,useDilution,useOpener,favElite,
-    live,liveActive,isOver,
+  return{control,chaos,scenA,scenB,favName,dogName,homeFav,useOpener,
+    live,liveActive,isOver,tac,tacNote,
     overUnder:isOver?'over':'under'};
 }
 
@@ -595,7 +658,7 @@ async function analyzeSelected(){
     const h2hFin=h2h.filter(f=>FINISHED.includes(f.fixture.status.short)).slice(0,6);
 
     // ── Poisson 波膽模型（核心預測，不靠 AI）──
-    const opts={opener:document.getElementById('adj-opener').checked,dilution:document.getElementById('adj-dilution').checked,live:{}};
+    const opts={opener:document.getElementById('adj-opener').checked,tactics:{},live:{}};
     const pred=buildPrediction(m,hs,as,opts);
     predCtx={m,hs,as,opts,pred};
     const c=pred.control;
@@ -617,7 +680,7 @@ async function analyzeSelected(){
     const modelHint={balanced:'均衡看待攻守與近況',attack:'特別側重進攻火力',defense:'特別側重防守穩定',form:'特別側重近5場狀態',historical:'特別側重歷史交手'}[model];
     const fmtP=arr=>arr.map(p=>`${p.name}(${p.apps}場/勝率${Math.round(p.winRate*100)}%/場均進${p.avgGf.toFixed(1)}失${p.avgGa.toFixed(1)})`).join('、')||'資料不足';
     const h2hTxt=h2hFin.map(f=>`${f.teams.home.name} ${f.goals.home}-${f.goals.away} ${f.teams.away.name}`).join('；')||'無歷史交手紀錄';
-    const adjTxt=[pred.useOpener?'大賽首戰停利下調':'',pred.useDilution?`含金量壓制(${pred.dogName}面對頂級強權${pred.favName})`:''].filter(Boolean).join('、')||'未套用大賽修正';
+    const adjTxt=[pred.useOpener?'大賽首戰停利下調':'',pred.tacNote?`戰術相剋(${pred.tacNote})`:''].filter(Boolean).join('、')||'未套用大賽修正';
     const prompt=`你是頂級足球戰術分析師。下方為真實統計與「已套用大賽修正」的雙劇本 Poisson 模型結果（機率已算出，不需重算）。
 **請全程以繁體中文回覆，球隊名稱一律使用中文：${m.home}=${tw(m.home)}、${m.away}=${tw(m.away)}。**
 請先用 web_search 查這場最新賽前資訊（傷停、停賽、預期先發、近期狀態、教練談話），**只採用可信來源**（球隊/協會官網、FIFA、BBC Sport、ESPN、Reuters、The Athletic、Sky Sports），避免論壇與內容農場。再結合下方資料做戰術解讀。
@@ -631,7 +694,7 @@ async function analyzeSelected(){
 【歷史交手】${h2hTxt}
 【${m.home}關鍵先發】${fmtP(hp.players)}
 【${m.away}關鍵先發】${fmtP(ap.players)}
-分析取向：${modelHint}。請給：1.factors：3-5個關鍵因素標籤(含雙方戰術盲點) 2.intel：80字內賽前情報重點(傷停/狀態/變數)，無可信結果寫「無重大賽前情報」 3.summary：100字內戰術總結，需點出此戰較可能走A劇本(控制)或有B劇本(暴走)風險、並說明模型沒涵蓋的臨場變數。只回傳純JSON：{"factors":[{"label":"標籤","type":"positive|negative|neutral"}],"intel":"情報重點","summary":"總結"}`;
+分析取向：${modelHint}。請給：1.factors：3-5個關鍵因素標籤(含雙方戰術盲點) 2.intel：80字內賽前情報重點(傷停/狀態/變數)，無可信結果寫「無重大賽前情報」 3.summary：100字內戰術總結，需點出此戰較可能走A劇本(控制)或有B劇本(暴走)風險 4.tactics：依兩隊踢法判斷戰術風格，style 從 attack(進攻流/兩翼齊飛)、bus(擺大巴/密集防守)、counter(防守反擊)、control(控球養生)、physical(肉搏絞殺) 五選一；lead 從 keep_attacking(領先續攻)、conservative(領先轉保守) 二選一。只回傳純JSON：{"factors":[{"label":"標籤","type":"positive|negative|neutral"}],"intel":"情報重點","summary":"總結","tactics":{"home":{"style":"...","lead":"..."},"away":{"style":"...","lead":"..."}}}`;
 
     // ── Claude 呼叫（含 web_search，限 4 次搜尋控制成本）：失敗也保留模型預測與真實數據 ──
     try{
@@ -658,6 +721,20 @@ async function analyzeSelected(){
         +intelHTML
         +`<div class="ai-summary" style="border-top:none;padding-top:12px">${r.summary||''}</div></div>`;
       const aiSec=document.getElementById('ai-section'); if(aiSec)aiSec.innerHTML=aiHTML;
+      // 套用 AI 判斷的戰術風格 → 相剋矩陣
+      if(r.tactics&&predCtx){
+        const homeStyle=r.tactics.home&&r.tactics.home.style, awayStyle=r.tactics.away&&r.tactics.away.style;
+        const homeLead=r.tactics.home&&r.tactics.home.lead, awayLead=r.tactics.away&&r.tactics.away.lead;
+        const favIsHome=predCtx.pred.homeFav;
+        predCtx.opts.tactics={
+          favStyle:favIsHome?homeStyle:awayStyle,
+          dogStyle:favIsHome?awayStyle:homeStyle,
+          favLead:favIsHome?homeLead:awayLead
+        };
+        predCtx.aiTactics={homeStyle,awayStyle};
+        recomputePred();
+        updateTacDetected();
+      }
     }catch(aiErr){
       const hint=/ANTHROPIC_API_KEY|api[_-]?key|authentication|x-api-key|credit|balance/i.test(aiErr.message)?'<br>請確認 Anthropic 金鑰已設定且帳戶有額度。':'';
       const aiSec=document.getElementById('ai-section'); if(aiSec)aiSec.innerHTML='<div class="status-warn" style="margin:0">⚠️ AI 觀點載入失敗：'+aiErr.message+hint+'<br><span style="opacity:.8">模型預測與真實數據不受影響。</span></div>';
@@ -680,7 +757,7 @@ function setStatusLight(active){
 
 // 大結論（結論頁；隨臨場校正即時重算）
 function pvVerdict(m,pred,mWinner){
-  const badges=[pred.useOpener?'<span class="adj-badge">大賽首戰停利</span>':'',pred.useDilution?'<span class="adj-badge">含金量壓制</span>':'',pred.liveActive?'<span class="adj-badge live">臨場校正</span>':''].filter(Boolean).join('')||'<span class="adj-badge off">未套用修正</span>';
+  const badges=[pred.useOpener?'<span class="adj-badge">大賽首戰停利</span>':'',pred.tacNote?'<span class="adj-badge">戰術相剋</span>':'',pred.liveActive?'<span class="adj-badge live">臨場校正</span>':''].filter(Boolean).join('')||'<span class="adj-badge off">未套用修正</span>';
   // 主推比分的單格機率 → 信心度
   const scenAp=((pred.control.top.find(s=>s.h===pred.scenA.h&&s.a===pred.scenA.a)||{}).p)||0;
   const ap=Math.round(scenAp*100);
@@ -745,12 +822,16 @@ function pvScores(m,pred){
 // 臨場校正面板（推演頁；勾選觸發 recomputePred）
 function livePanelHTML(){
   return `<div class="data-section"><div class="data-section-title">📡 臨場校正（賽前手動勾選）</div>
+    <div id="tac-detected" class="tac-detected">🎯 戰術風格：分析 AI 情報後自動判斷…</div>
     <div class="live-panel">
-      <label class="live-row"><input type="checkbox" id="live-star" onchange="recomputePred()"><span><b>強隊擺全主力先發</b><br><span class="live-hint">核心前鋒/邊鋒全上 → 火力釋放 ×1.25，往對攻大分拉</span></span></label>
-      <label class="live-row"><input type="checkbox" id="live-odds" onchange="recomputePred()"><span><b>盤口大資金湧入大球</b><br><span class="live-hint">大球賠率暴跌 → 調降控制流、提高大分權重防翻車</span></span></label>
-      <label class="live-row"><input type="checkbox" id="live-group" onchange="recomputePred()"><span><b>小組賽第一輪（搶淨勝球）</b><br><span class="live-hint">強隊刷淨勝球意願高 → 降低 1-0 養生停利機率</span></span></label>
+      <label class="live-row"><input type="checkbox" id="live-bus" onchange="recomputePred()"><span><b>弱隊極端密集防守（擺大巴）</b><br><span class="live-hint">客隊進球預期降至最低、強隊封頂 2 球，往 1-0/2-0 修正</span></span></label>
+      <label class="live-row"><input type="checkbox" id="live-control" onchange="recomputePred()"><span><b>強隊控球養生（點到為止）</b><br><span class="live-hint">淨勝 2 球後進球指數遞減，壓低 3-0 以上大比分</span></span></label>
+      <label class="live-row"><input type="checkbox" id="live-flow" onchange="recomputePred()"><span><b>戰術對流局（大開大合）</b><br><span class="live-hint">主客雙方預期進球同時 ×1.15，往大分拉</span></span></label>
+      <label class="live-row"><input type="checkbox" id="live-star" onchange="recomputePred()"><span><b>強隊擺全主力先發</b><br><span class="live-hint">核心前鋒/邊鋒全上 → 火力釋放 ×1.25</span></span></label>
+      <label class="live-row"><input type="checkbox" id="live-odds" onchange="recomputePred()"><span><b>盤口大資金湧入大球</b><br><span class="live-hint">大球賠率暴跌 → 整體上修、提高大分權重</span></span></label>
+      <label class="live-row"><input type="checkbox" id="live-group" onchange="recomputePred()"><span><b>小組賽第一輪（搶淨勝球）</b><br><span class="live-hint">強隊刷淨勝球意願高 → 關閉養生遞減、提高火力</span></span></label>
     </div>
-    <div class="data-note">官方首發資料源仍缺，故首發採手動勾選。「盤口湧入大球」可在結論頁按🎲自動偵測，或在此手動勾。</div>
+    <div class="data-note">戰術風格由 AI 自動判斷並套用相剋矩陣；上方勾選為手動覆蓋，勾了即時重算、頂部狀態燈轉「已校正」。</div>
   </div>`;
 }
 
@@ -837,11 +918,20 @@ function toggleAcc(id,btn){
 
 // 臨場校正切換 → 只重算模型，不重抓資料、不重呼叫 AI
 let predCtx=null;
+const STYLE_TW={attack:'進攻流',bus:'擺大巴',counter:'防守反擊',control:'控球養生',physical:'肉搏絞殺'};
+function updateTacDetected(){
+  const el=document.getElementById('tac-detected'); if(!el||!predCtx)return;
+  const t=predCtx.aiTactics;
+  if(!t||(!t.homeStyle&&!t.awayStyle)){ el.innerHTML='🎯 戰術風格：AI 未提供，可手動勾選下方戰術校正'; return; }
+  const note=predCtx.pred&&predCtx.pred.tacNote?`　·　${predCtx.pred.tacNote}`:'';
+  el.innerHTML=`🎯 AI 判戰術　${tw(predCtx.m.home)}：<b>${STYLE_TW[t.homeStyle]||t.homeStyle||'—'}</b>　vs　${tw(predCtx.m.away)}：<b>${STYLE_TW[t.awayStyle]||t.awayStyle||'—'}</b>${note}`;
+}
 function recomputePred(){
   if(!predCtx)return;
   const {m,hs,as,opts}=predCtx;
   const chk=id=>{const e=document.getElementById(id);return !!(e&&e.checked);};
-  opts.live={starXI:chk('live-star'),oddsOver:chk('live-odds'),groupR1:chk('live-group')};
+  opts.live={starXI:chk('live-star'),oddsOver:chk('live-odds'),groupR1:chk('live-group'),
+             bus:chk('live-bus'),control:chk('live-control'),flow:chk('live-flow')};
   const pred=buildPrediction(m,hs,as,opts);
   predCtx.pred=pred;
   const c=pred.control;
